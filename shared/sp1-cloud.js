@@ -5,6 +5,7 @@
  *   sp1/progress/{uid}  a student's homework answers + done marks
  *                       (readable by owner/manager and the student's teacher)
  *   sp1/boards/{uid}    what a teacher typed onto lesson slides (private)
+ *   sp1/open/{unitKey}  a lesson opened for every student (new ones too)
  *   sp1/access/{uid}    the lessons a teacher has opened for this student
  *                       ({ "lesson-3": {at, by}, "quiz-2": {...} }); a
  *                       student sees only these lessons and their homework
@@ -158,6 +159,35 @@ const Cloud = {
   watchStudent(uid, cb){ return onValue(ref(db, "sp1/progress/" + uid), s => cb(normProgress(s.val())), () => cb(normProgress(null))); },
 
   /* ---- lesson access ---- */
+  // sp1/open/{unitKey}: opened for every student, including ones who sign up later
+  watchOpenAll(cb){ return onValue(ref(db, "sp1/open"), s => cb(s.val() || {}), () => cb({})); },
+  setOpenAll(keys, on){
+    const u = {};
+    [].concat(keys).forEach(k => { u["sp1/open/" + k] = on ? { at: Date.now(), by: this.uid } : null; });
+    return update(ref(db), u);
+  },
+  setAccessMany(changes){   // [[uid, key, on], ...] in one write
+    const u = {};
+    changes.forEach(([id, k, on]) => { u[`sp1/access/${id}/${k}`] = on ? { at: Date.now(), by: this.uid } : null; });
+    return Object.keys(u).length ? update(ref(db), u) : Promise.resolve();
+  },
+
+  /* ---- homework assignments and resets (SpeakUp's assignments/resets, for SpeakUp-1 homework) ----
+   * sp1/assignments/{uid}/{id}: {hw, note, dueDate, by, byName, at}; the student sees them on Home and Homework.
+   * sp1/resets/{uid}/{id}: {hw, by, byName, at}; the student's app clears that homework and deletes the request. */
+  watchAssignments(uid, cb){ return onValue(ref(db, "sp1/assignments/" + uid), s => cb(s.val() || {}), () => cb({})); },
+  assign(uids, p){
+    const base = { hw: Number(p.hw), by: this.uid, byName: (this.profile && this.profile.name) || "", at: Date.now() };
+    if (p.note) base.note = p.note;
+    if (p.dueDate) base.dueDate = p.dueDate;
+    const u = {};
+    uids.forEach(id => { u[`sp1/assignments/${id}/${push(ref(db, "sp1/assignments/" + id)).key}`] = base; u[`sp1/access/${id}/lesson-${base.hw}`] = { at: Date.now(), by: this.uid }; });
+    return update(ref(db), u);
+  },
+  cancelAssignment(uid, id){ return remove(ref(db, `sp1/assignments/${uid}/${id}`)); },
+  watchResets(uid, cb){ return onValue(ref(db, "sp1/resets/" + uid), s => cb(s.val() || {}), () => cb({})); },
+  queueReset(uid, hw){ return set(push(ref(db, "sp1/resets/" + uid)), { hw: Number(hw), by: this.uid, byName: (this.profile && this.profile.name) || "", at: Date.now() }); },
+  doneReset(id){ return remove(ref(db, `sp1/resets/${this.uid}/${id}`)); },
   watchMyAccess(cb){ return onValue(ref(db, "sp1/access/" + this.uid), s => cb(s.val() || {}), () => cb({})); },
   setAccess(uids, key, on){
     const u = {};

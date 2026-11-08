@@ -19,6 +19,7 @@ const SECTIONS = () => [
   ["users", L("Foydalanuvchilar", "Users"), "user", () => C().isManager],
   ["students", L("Oʻquvchilar", "Students"), "board", () => true],
   ["access", L("Darslarga ruxsat", "Lesson access"), "unlock", () => true],
+  ["progress", L("Natijalar", "Progress"), "check", () => true],
   ["answers", L("Javoblar", "Answer key"), "key", () => true],
   ["calendar", L("Taqvim", "Calendar"), "clock", () => true],
   ["account", L("Hisob", "Account"), "user", () => true],
@@ -56,6 +57,7 @@ function render(sec, q){
   section = allowed.some(s => s[0] === sec) ? sec : (C().isManager ? "users" : "students");
   query = q || "";
   if (section !== "calendar" && eventsOff){ eventsOff(); eventsOff = null; eventsFor = null; }
+  if (section !== "progress") watchFor(null);
   $app.innerHTML = `
     <div class="section-title"><div><h1>${A().t("settings")}</h1><p>${esc(C().profile.name || "")} · ${esc(ROLE()[C().profile.role] || C().profile.role)}</p></div></div>
     <nav class="set-tabs" aria-label="${A().t("settings")}">${allowed.map(([id, label, ic]) => `<a class="set-tab${id === section ? " active" : ""}" href="#/settings/${id}">${A().I(ic, 16)}<span>${label}</span>${id === "users" ? `<span class="nav-badge" id="usersBadge" hidden></span>` : ""}</a>`).join("")}</nav>
@@ -75,7 +77,7 @@ function draw(force){
   const ub = document.getElementById("usersBadge"); if (ub){ ub.textContent = pend; ub.hidden = !pend; }
   if (section === "answers"){ if (force) A().viewAnswers(body); return; }
   const tmp = document.createElement("div");
-  ({ users: drawUsers, students: drawStudents, access: drawAccess, calendar: drawCalendar, account: drawAccount })[section](tmp);
+  ({ users: drawUsers, students: drawStudents, access: drawAccess, progress: drawProgress, calendar: drawCalendar, account: drawAccount })[section](tmp);
   tmp.querySelectorAll(".admin-table").forEach(tb => {
     const heads = [...tb.querySelectorAll("thead th")].map(th => th.textContent.trim());
     tb.querySelectorAll("tbody tr").forEach(tr => [...tr.children].forEach((td, i) => td.setAttribute("data-label", heads[i] || "")));
@@ -207,41 +209,133 @@ function drawStudents(el){
   const list = cur === "all" ? all : cur === "none" ? all.filter(s => !s.teacherId) : all.filter(s => s.teacherId === cur);
   const units = A().D.units.filter(u => u.type === "lesson" || u.type === "quiz");
   el.innerHTML = `<section class="panel"><div class="panel-head-row"><div><h2>${L("Oʻquvchilar", "Students")} (${list.length})</h2>
-      <p class="panel-sub">${mgr ? L("SpeakUp-1 ga kirgan barcha oʻquvchilar.", "Every student who has signed in to SpeakUp-1.") : L("Sizga biriktirilgan oʻquvchilar.", "Students assigned to you.")}</p></div></div>
+      <p class="panel-sub">${mgr ? L("SpeakUp-1 ga kirgan barcha oʻquvchilar.", "Every student who has signed in to SpeakUp-1.") : L("Sizga biriktirilgan oʻquvchilar.", "Students assigned to you.")}</p></div>
+      ${list.length ? `<button class="btn btn-accent btn-sm" data-assign="">+ ${L("Uy vazifasi berish", "Assign homework")}</button>` : ""}</div>
     ${f.length > 2 ? filterSwitch("students", f, cur) : ""}
     ${list.length ? `<div class="table-wrap"><table class="admin-table"><thead><tr><th>${L("Ism", "Name")}</th><th>Email</th>${mgr ? `<th>${L("Oʻqituvchi", "Teacher")}</th>` : ""}<th>${L("Ochiq darslar", "Open lessons")}</th><th>${L("Uy vazifalari", "Homework")}</th><th>${L("Oxirgi faollik", "Last active")}</th><th></th></tr></thead><tbody>
       ${list.map(s => {
-        const open = units.filter(u => s.access[A().keyOf(u)]).length, done = Object.keys(s.sp1.hwDone).length;
+        const open = units.filter(u => A().hasFor(s, A().keyOf(u))).length, done = Object.keys(s.sp1.hwDone).length;
         const started = Object.keys(s.sp1.hwInputs).filter(k => (s.sp1.hwInputs[k] || []).some(x => x) && !s.sp1.hwDone[k]).length;
         return `<tr><td>${esc(s.name || "—")}${s.status === "pending" ? ` <span class="user-badge status-pending">${L("kutilmoqda", "pending")}</span>` : ""}</td><td class="mono">${esc(s.email || "")}</td>
           ${mgr ? `<td>${teacherPicker(Object.assign({ id: s.uid }, s))}</td>` : ""}
           <td class="mono">${open}</td><td class="mono">${done} ✓${started ? ` · ${started} …` : ""}</td><td class="mono">${A().fmtAgo(s.sp1.updatedAt || s.sp1.lastSeen || s.lastActive)}</td>
-          <td><a class="btn btn-ghost btn-sm" href="#/student/${s.uid}">${L("Javoblari", "Answers")}</a> <a class="btn btn-ghost btn-sm" href="#/settings/access?s=${s.uid}">${L("Ruxsat", "Access")}</a></td></tr>`;
+          <td><a class="btn btn-ghost btn-sm" href="#/settings/progress?s=${s.uid}">${L("Natijalar", "Progress")}</a> <a class="btn btn-ghost btn-sm" href="#/student/${s.uid}">${L("Javoblari", "Answers")}</a> <a class="btn btn-ghost btn-sm" href="#/settings/access?s=${s.uid}">${L("Ruxsat", "Access")}</a></td></tr>`;
       }).join("")}</tbody></table></div>` : `<p class="panel-sub">${A().t("noMembers")}</p>`}</section>`;
 }
 
-/* ---------------- Lesson access ---------------- */
+/* ---------------- Lesson access ----------------
+ * Tick lessons (or pick a range, like SpeakUp's "Unlock lessons early"), then open or close them all at once. */
+const unitsAll = () => A().D.units.filter(u => u.type === "lesson" || u.type === "quiz");
+const unitOpts = sel => unitsAll().map(u => `<option value="${A().keyOf(u)}" ${A().keyOf(u) === sel ? "selected" : ""}>${esc(A().unitName(u))} — ${esc(u.title)}</option>`).join("");
 function drawAccess(el){
   const all = A().members(), sel = new URLSearchParams(query).get("s") || state.accessStudent || "";
-  const s = all.find(x => x.uid === sel);
-  const units = A().D.units.filter(u => u.type === "lesson" || u.type === "quiz");
+  const s = all.find(x => x.uid === sel), units = unitsAll(), picked = state.accessSel || (state.accessSel = new Set());
   el.innerHTML = `<section class="panel"><div class="panel-head-row"><div><h2>${L("Darslarga ruxsat", "Lesson access")}</h2>
-      <p class="panel-sub">${L("Oʻquvchi faqat siz ochgan darslarni va ularning uy vazifasini koʻradi. Darsni boshlaganingizda u sinfingizga avtomatik ochiladi.", "Students see only the lessons you open, plus their homework. Starting a lesson opens it for your class automatically.")}</p></div>
+      <p class="panel-sub">${L("Oʻquvchilar barcha darslarni koʻradi, lekin faqat siz ochganlariga kira oladi. Darsni boshlaganingizda u sinfingizga avtomatik ochiladi.", "Students see every lesson but can only enter the ones you open. Starting a lesson opens it for your class automatically.")}</p></div>
       <select class="select" id="accStudent" style="max-width:260px"><option value="">${L("Barcha oʻquvchilar", "All students")}</option>${all.map(x => `<option value="${x.uid}" ${x.uid === sel ? "selected" : ""}>${esc(x.name || x.email)}</option>`).join("")}</select></div>
+    <div class="range-bar">
+      <span class="panel-sub">${L("Oraliq:", "Range:")}</span>
+      <select class="select" id="rgFrom">${unitOpts(state.rgFrom || "lesson-1")}</select><span class="panel-sub">→</span>
+      <select class="select" id="rgTo">${unitOpts(state.rgTo || "lesson-5")}</select>
+      <button class="btn btn-ghost btn-sm" data-range>${L("Belgilash", "Select")}</button>
+      <button class="btn btn-ghost btn-sm" data-pick-none>${L("Tozalash", "Clear")}</button>
+    </div>
+    <div class="bulk-bar"><b>${picked.size} ${L("ta dars belgilandi", "selected")}</b>
+      ${s ? `<button class="btn btn-accent btn-sm" data-bulk-open ${picked.size ? "" : "disabled"}>${A().I("unlock", 14)}${L("Ochish", "Open")}</button><button class="btn btn-ghost btn-sm" data-bulk-close ${picked.size ? "" : "disabled"}>${A().I("lock", 14)}${L("Yopish", "Close")}</button>`
+        : `<button class="btn btn-accent btn-sm" data-bulk-grant ${picked.size ? "" : "disabled"}>${A().I("unlock", 14)}${A().t("grantAccess")}</button>`}</div>
     <div class="unit-list">${units.map(u => {
-      const k = A().keyOf(u), b = u.type === "quiz" ? ["TEST", u.num] : ["DARS", u.num];
+      const k = A().keyOf(u), b = u.type === "quiz" ? ["TEST", u.num] : ["DARS", u.num], every = !!A().openAll[k];
+      const box = `<input type="checkbox" class="acc-pick" data-pick="${k}" ${picked.has(k) ? "checked" : ""} aria-label="${esc(A().unitName(u))}">`;
       if (s){
-        const on = !!s.access[k];
-        return `<div class="unit-row${u.type === "quiz" ? " quiz" : ""}${on ? " done" : ""}"><span class="unit-badge"><small>${b[0]}</small><b>${b[1]}</b></span>
-          <span class="unit-main"><h3>${esc(u.title)}</h3><p class="unit-meta">${esc(A().unitName(u))}${on && s.access[k].at ? " · " + A().fmtAgo(s.access[k].at) : ""}</p></span>
-          <span class="unit-side"><button class="btn btn-sm ${on ? "btn-ghost" : "btn-accent"}" data-toggle="${k}">${A().I(on ? "lock" : "unlock", 14)}${on ? L("Yopish", "Close") : L("Ochish", "Open")}</button></span></div>`;
+        const on = A().hasFor(s, k);
+        return `<label class="unit-row acc-row${u.type === "quiz" ? " quiz" : ""}${on ? " done" : ""}">${box}<span class="unit-badge"><small>${b[0]}</small><b>${b[1]}</b></span>
+          <span class="unit-main"><h3>${esc(u.title)}</h3><p class="unit-meta">${esc(A().unitName(u))}${on && s.access[k] && s.access[k].at ? " · " + A().fmtAgo(s.access[k].at) : ""}</p></span>
+          <span class="unit-side">${every ? `<span class="chip accent">${A().t("openToAll")}</span>` : `<button class="btn btn-sm ${on ? "btn-ghost" : "btn-accent"}" data-toggle="${k}">${A().I(on ? "lock" : "unlock", 14)}${on ? L("Yopish", "Close") : L("Ochish", "Open")}</button>`}</span></label>`;
       }
       const n = A().openFor(k).length;
-      return `<div class="unit-row${u.type === "quiz" ? " quiz" : ""}${n ? " done" : ""}"><span class="unit-badge"><small>${b[0]}</small><b>${b[1]}</b></span>
-        <span class="unit-main"><h3>${esc(u.title)}</h3><p class="unit-meta">${esc(A().unitName(u))} · ${n ? `${n}/${all.length} ${A().t("openForN")}` : A().t("notOpenYet")}</p></span>
-        <span class="unit-side"><button class="btn btn-sm ${n ? "btn-ghost" : "btn-accent"}" data-grant="${k}">${A().I("unlock", 14)}${A().t("grantAccess")}</button></span></div>`;
+      return `<label class="unit-row acc-row${u.type === "quiz" ? " quiz" : ""}${n || every ? " done" : ""}">${box}<span class="unit-badge"><small>${b[0]}</small><b>${b[1]}</b></span>
+        <span class="unit-main"><h3>${esc(u.title)}</h3><p class="unit-meta">${esc(A().unitName(u))} · ${every ? A().t("openToAll") : n ? `${n}/${all.length} ${A().t("openForN")}` : A().t("notOpenYet")}</p></span>
+        <span class="unit-side"><button class="btn btn-sm ${n || every ? "btn-ghost" : "btn-accent"}" data-grant="${k}">${A().I("unlock", 14)}${A().t("grantAccess")}</button></span></label>`;
     }).join("")}</div></section>`;
 }
+
+/* ---------------- Progress (one student; copied from SpeakUp's admin Progress page) ---------------- */
+let assignView = { uid: null, off: null, list: {} }, resetView = { uid: null, off: null, list: {} };
+function watchFor(uid){
+  if (assignView.uid !== uid){
+    if (assignView.off) assignView.off();
+    if (resetView.off) resetView.off();
+    assignView = { uid, list: {}, off: uid ? C().watchAssignments(uid, v => { assignView.list = v; draw(); }) : null };
+    resetView = { uid, list: {}, off: uid ? C().watchResets(uid, v => { resetView.list = v; draw(); }) : null };
+  }
+}
+const hwOpts = sel => A().D.homeworks.map(h => `<option value="${h.num}" ${String(h.num) === String(sel) ? "selected" : ""}>${esc(h.title)}</option>`).join("");
+function drawProgress(el){
+  const all = A().members(), uid = new URLSearchParams(query).get("s") || "", s = all.find(x => x.uid === uid);
+  if (!s){
+    watchFor(null);
+    el.innerHTML = `<section class="panel"><div class="panel-head-row"><div><h2>${L("Natijalar", "Progress")}</h2><p class="panel-sub">${L("Oʻquvchini tanlang: darslari, uy vazifalari va topshiriqlari.", "Pick a student to see their lessons, homework and assignments.")}</p></div>
+      ${all.length ? `<button class="btn btn-accent btn-sm" data-assign="">+ ${L("Uy vazifasi berish", "Assign homework")}</button>` : ""}</div>
+      ${all.length ? `<div class="pick-list">${all.map(x => `<a class="pick-row" href="#/settings/progress?s=${x.uid}"><span>${esc(x.name || x.email)}</span><span class="panel-sub mono">${esc(x.email || "")}</span></a>`).join("")}</div>` : `<p class="panel-sub">${A().t("noMembers")}</p>`}</section>`;
+    return;
+  }
+  watchFor(uid);
+  const p = s.sp1, units = unitsAll(), open = units.filter(u => A().hasFor(s, A().keyOf(u)));
+  const done = Object.keys(p.hwDone).map(Number).sort((a, b) => a - b);
+  const started = Object.keys(p.hwInputs).map(Number).filter(n => (p.hwInputs[n] || []).some(x => x)).sort((a, b) => a - b);
+  const asg = Object.keys(assignView.list).map(id => Object.assign({ id }, assignView.list[id])).sort((a, b) => (b.at || 0) - (a.at || 0));
+  const rs = Object.keys(resetView.list).map(id => Object.assign({ id }, resetView.list[id]));
+  const hwRows = [...new Set(done.concat(started))].sort((a, b) => a - b);
+  el.innerHTML = `<a class="auth-link-btn" href="#/settings/progress">← ${L("Barcha oʻquvchilar", "All students")}</a>
+    <section class="panel"><div class="panel-head"><h2>${esc(s.name || s.email)}</h2><p class="panel-sub">${esc(s.email || "")}${s.teacherId ? " · " + L("Oʻqituvchi", "Teacher") + ": " + esc(nameOf(s.teacherId)) : ""} · ${L("Oxirgi faollik", "Last active")}: ${A().fmtAgo(p.updatedAt || p.lastSeen || s.lastActive)}</p></div>
+      <div class="stat-row"><div class="stat-tile"><span class="stat-num">${open.length}/${units.length}</span><span class="stat-label">${L("Ochiq darslar", "Open lessons")}</span></div>
+        <div class="stat-tile"><span class="stat-num">${done.length}/30</span><span class="stat-label">${L("Bajarilgan uy vazifalari", "Homework done")}</span></div>
+        <div class="stat-tile"><span class="stat-num">${asg.length}</span><span class="stat-label">${L("Berilgan vazifalar", "Assigned")}</span></div></div>
+      <div class="toolbar" style="margin-top:12px"><a class="btn btn-sm" href="#/student/${uid}">${A().I("pencil", 16)}${L("Barcha javoblarini koʻrish", "See all their answers")}</a><a class="btn btn-sm" href="#/settings/access?s=${uid}">${A().I("unlock", 16)}${L("Darslarga ruxsat", "Lesson access")}</a></div></section>
+    <section class="panel"><div class="panel-head-row"><div><h2>${L("Berilgan uy vazifalari", "Homework assigned")}</h2>
+      <p class="panel-sub">${L("Oʻquvchi ularni bosh sahifasida va «Uy vazifalari»da koʻradi. Vazifa berilganda shu dars ham ochiladi.", "They see these on their home page and under Homeworks. Assigning also opens that lesson for them.")}</p></div>
+      <button class="btn btn-accent btn-sm" data-assign="${uid}">+ ${L("Uy vazifasi berish", "Assign homework")}</button></div>
+      ${asg.length ? `<div class="reset-log">${asg.map(a => `<div class="reset-log-row"><span>${esc((A().hwByNum(a.hw) || {}).title || "#" + a.hw)}${a.dueDate ? ` · ${L("muddati", "due")} ${esc(a.dueDate)}` : ""}${a.note ? ` · “${esc(a.note)}”` : ""} ${p.hwDone[a.hw] ? `<span class="user-badge status-approved">${L("bajarildi", "done")}</span>` : ""}</span>
+        <span class="panel-sub" style="display:flex;align-items:center;gap:8px">${a.byName ? esc(a.byName) : ""}<button class="btn btn-ghost btn-sm" data-cancel-assign="${a.id}">${L("Bekor qilish", "Cancel")}</button></span></div>`).join("")}</div>` : `<p class="panel-sub">${L("Hali hech narsa berilmagan.", "Nothing assigned yet.")}</p>`}</section>
+    <section class="panel"><div class="panel-head"><h2>${L("Darslarni ochish (oraliq)", "Open a range of lessons")}</h2>
+      <p class="panel-sub">${L("Shu oʻquvchi uchun bir nechta darsni birdaniga oching yoki yoping.", "Open or close several lessons at once for this student.")}</p></div>
+      <div class="reset-row"><select class="select" id="pgFrom">${unitOpts(state.rgFrom || "lesson-1")}</select><select class="select" id="pgTo">${unitOpts(state.rgTo || "lesson-5")}</select>
+        <button class="btn btn-accent" data-pg-open>${L("Ochish", "Open")}</button><button class="btn btn-ghost" data-pg-close>${L("Yopish", "Close")}</button></div></section>
+    <section class="panel"><div class="panel-head"><h2>${L("Uy vazifasini qaytadan boshlash", "Reset a homework")}</h2>
+      <p class="panel-sub">${L("Tanlangan uy vazifasidagi barcha javoblarini va «bajarildi» belgisini oʻchiradi, shunda qaytadan bajaradi.", "Clears every answer and the done mark on one homework so they can redo it.")}</p></div>
+      <div class="reset-row"><select class="select" id="rsHw">${hwOpts(state.rsHw || (hwRows[0] || 1))}</select><button class="btn btn-accent" data-reset-hw>${L("Qaytadan boshlash", "Reset this homework")}</button></div>
+      ${rs.length ? `<div class="reset-log"><p class="panel-sub" style="margin:14px 0 6px">${L("Kutilmoqda (oʻquvchi saytni ochganda bajariladi)", "Waiting (applies when the student opens the site)")}</p>${rs.map(r => `<div class="reset-log-row"><span>${esc((A().hwByNum(r.hw) || {}).title || r.hw)}</span><span class="panel-sub">${esc(r.byName || "")}</span></div>`).join("")}</div>` : ""}</section>
+    <section class="panel"><div class="panel-head"><h2>${L("Uy vazifalari", "Homework")} (${hwRows.length})</h2></div>
+      ${hwRows.length ? `<div class="table-wrap"><table class="admin-table"><thead><tr><th>${L("Uy vazifasi", "Homework")}</th><th>${L("Holati", "Status")}</th><th>${L("Toʻldirilgan", "Filled")}</th><th>${L("Vaqti", "When")}</th><th></th></tr></thead><tbody>
+        ${hwRows.map(n => `<tr><td>${esc((A().hwByNum(n) || {}).title || n)}</td><td>${p.hwDone[n] ? `<span class="user-badge status-approved">${L("bajarildi", "done")}</span>` : `<span class="user-badge status-trial">${L("bajarilmoqda", "in progress")}</span>`}</td>
+          <td class="mono">${(p.hwInputs[n] || []).filter(x => x).length}</td><td class="mono">${A().fmtAgo(p.hwAt[n])}</td>
+          <td><a class="btn btn-ghost btn-sm" href="#/hw/${n}?s=${uid}">${L("Javoblari", "Answers")}</a> <button class="btn btn-ghost btn-sm" data-reset-row="${n}">${L("Qaytadan", "Reset")}</button></td></tr>`).join("")}</tbody></table></div>` : `<p class="panel-sub">${L("Hali uy vazifasi boshlanmagan.", "No homework started yet.")}</p>`}</section>`;
+}
+function openAssign(preset){
+  const all = A().members(), pre = new Set(preset ? [preset] : A().myClass().map(x => x.uid));
+  const r = modal(`<h2>${L("Uy vazifasi berish", "Assign homework")}</h2>
+    <p class="panel-sub">${L("Oʻquvchi uni bosh sahifasida koʻradi; shu dars ham unga ochiladi.", "They see it on their home page; the lesson opens for them too.")}</p>
+    <label class="auth-label">${L("Uy vazifasi", "Homework")}</label><select class="select" id="asHw" style="width:100%">${hwOpts(state.asHw || 1)}</select>
+    <label class="auth-label" style="margin-top:10px">${L("Muddati (ixtiyoriy)", "Due date (optional)")}</label><input class="auth-input" id="asDue" type="date">
+    <label class="auth-label" style="margin-top:10px">${L("Izoh (ixtiyoriy)", "Note (optional)")}</label><input class="auth-input" id="asNote" maxlength="200" placeholder="${L("masalan: 4-mashqni ham bajaring", "e.g. do exercise 4 too")}">
+    <label class="auth-label" style="margin-top:10px">${L("Kimlarga", "Students")}</label>
+    <div class="grant-tools"><button class="btn btn-ghost btn-sm" data-sel="all">${L("Hammasi", "All")}</button><button class="btn btn-ghost btn-sm" data-sel="none">${L("Hech kim", "None")}</button></div>
+    <div class="grant-list">${all.map(x => `<label class="grant-row"><input type="checkbox" value="${x.uid}" ${pre.has(x.uid) ? "checked" : ""}><span class="grow"><b>${esc(x.name || x.email)}</b><small>${esc(x.email || "")}</small></span></label>`).join("")}</div>
+    <div class="modal-actions"><button class="btn btn-ghost" data-x>${L("Bekor qilish", "Cancel")}</button><button class="btn btn-accent" data-ok>${L("Berish", "Assign")}</button></div>`);
+  const boxes = [...r.querySelectorAll(".grant-list input")];
+  r.querySelectorAll("[data-sel]").forEach(b => b.onclick = () => boxes.forEach(x => { x.checked = b.dataset.sel === "all"; }));
+  r.querySelector("[data-x]").onclick = closeModal;
+  r.querySelector("[data-ok]").onclick = () => {
+    const uids = boxes.filter(x => x.checked).map(x => x.value);
+    if (!uids.length) return alert(L("Kamida bitta oʻquvchini tanlang.", "Pick at least one student."));
+    state.asHw = r.querySelector("#asHw").value;
+    act(() => C().assign(uids, { hw: state.asHw, dueDate: r.querySelector("#asDue").value, note: r.querySelector("#asNote").value.trim() }), L("Uy vazifasi berildi", "Homework assigned")).then(closeModal);
+  };
+}
+const rangeKeys = (from, to) => {
+  const u = unitsAll().map(A().keyOf), a = u.indexOf(from), b = u.indexOf(to);
+  return a < 0 || b < 0 ? [] : u.slice(Math.min(a, b), Math.max(a, b) + 1);
+};
 
 /* ---------------- Calendar (SpeakUp's events/{teacherId}) ---------------- */
 function calTeacher(){
@@ -324,8 +418,24 @@ function wire(body){
   q("[data-role]", s => s.onchange = () => act(() => C().setUserRole(s.dataset.role, s.value, byId(s.dataset.role))));
   q("[data-teacher]", s => s.onchange = () => act(() => C().reassignTeacher(s.dataset.teacher, s.value, byId(s.dataset.teacher)), L("Oʻqituvchi yangilandi", "Teacher updated")));
   q("[data-reset-pw]", b => b.onclick = () => act(() => C().sendReset(b.dataset.resetPw), L("Havola yuborildi: ", "Reset email sent to ") + b.dataset.resetPw));
-  q("[data-grant]", b => b.onclick = () => A().openGrantModal(b.dataset.grant));
-  q("[data-toggle]", b => b.onclick = () => {
+  q("[data-grant]", b => b.onclick = e => { e.preventDefault(); A().openGrantModal(b.dataset.grant); });
+  const picked = () => state.accessSel || (state.accessSel = new Set());
+  q("[data-pick]", c => c.onchange = () => { if (c.checked) picked().add(c.dataset.pick); else picked().delete(c.dataset.pick); draw(true); });
+  q("[data-range]", b => b.onclick = () => { state.rgFrom = body.querySelector("#rgFrom").value; state.rgTo = body.querySelector("#rgTo").value; rangeKeys(state.rgFrom, state.rgTo).forEach(k => picked().add(k)); draw(true); });
+  q("[data-pick-none]", b => b.onclick = () => { picked().clear(); draw(true); });
+  q("[data-bulk-grant]", b => b.onclick = () => { const ks = unitsAll().map(A().keyOf).filter(k => picked().has(k)); picked().clear(); draw(true); A().openGrantModal(ks); });
+  const stuOf = () => new URLSearchParams(query).get("s") || state.accessStudent;
+  q("[data-bulk-open]", b => b.onclick = () => { const ks = [...picked()]; picked().clear(); act(() => C().setAccessMany(ks.map(k => [stuOf(), k, true])), A().t("accessSaved")); });
+  q("[data-bulk-close]", b => b.onclick = () => { const ks = [...picked()]; picked().clear(); act(() => C().setAccessMany(ks.map(k => [stuOf(), k, false])), A().t("accessSaved")); });
+  q("[data-assign]", b => b.onclick = () => openAssign(b.dataset.assign));
+  q("[data-cancel-assign]", b => b.onclick = () => { if (confirm(L("Bu vazifani bekor qilasizmi?", "Cancel this assignment?"))) act(() => C().cancelAssignment(assignView.uid, b.dataset.cancelAssign)); });
+  const pgRange = () => { state.rgFrom = body.querySelector("#pgFrom").value; state.rgTo = body.querySelector("#pgTo").value; return rangeKeys(state.rgFrom, state.rgTo); };
+  q("[data-pg-open]", b => b.onclick = () => { const ks = pgRange(); act(() => C().setAccessMany(ks.map(k => [assignView.uid, k, true])), `${ks.length} ${A().t("lessonsWord")} · ${A().t("accessSaved")}`); });
+  q("[data-pg-close]", b => b.onclick = () => { const ks = pgRange(); act(() => C().setAccessMany(ks.map(k => [assignView.uid, k, false])), A().t("accessSaved")); });
+  const doReset = n => { const s = A().members().find(x => x.uid === assignView.uid); if (confirm(L(`${(s && s.name) || ""}: ${n}-uy vazifasi javoblari oʻchirilsinmi?`, `Clear ${(s && s.name) || "this student"}'s answers on homework ${n}?`))) act(() => C().queueReset(assignView.uid, n), L("Soʻrov yuborildi", "Reset queued")); };
+  q("[data-reset-hw]", b => b.onclick = () => { state.rsHw = body.querySelector("#rsHw").value; doReset(state.rsHw); });
+  q("[data-reset-row]", b => b.onclick = () => doReset(b.dataset.resetRow));
+  q("[data-toggle]", b => b.onclick = e => { e.preventDefault();
     const uid = new URLSearchParams(query).get("s") || state.accessStudent, s = A().members().find(x => x.uid === uid);
     if (s) act(() => C().setAccess([uid], b.dataset.toggle, !s.access[b.dataset.toggle]));
   });

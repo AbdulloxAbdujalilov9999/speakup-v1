@@ -34,10 +34,11 @@ const isStaff = () => !!(Cloud() && Cloud().isStaff);
  * A student only sees the lessons (and their homework) that a teacher has
  * opened for them: sp1/access/{uid}. Staff see everything and open lessons
  * from the lesson page ("Grant access to students") or by starting it. */
-let access = {};          // this student's opened lessons {unitKey: {at, by}}
+let access = {};          // this student's opened lessons {unitKey: {at, by}} (their own + the ones open for everyone)
+let myAccess = {}, openAll = {};   // sp1/access/{uid} and sp1/open (lessons opened for every student, new ones too)
 let people = null;        // staff: { users, progress, access } (live)
 const hasAccess = k => isStaff() || !!access[k];
-const hwOpen = n => hasAccess("lesson-" + n);
+const hwOpen = n => hasAccess("lesson-" + n) || Object.values(assignments || {}).some(a => String(a.hw) === String(n));
 const openedKeys = () => Object.keys(access).sort((a, b) => ((access[a] && access[a].at) || 0) - ((access[b] && access[b].at) || 0));
 /* SpeakUp-1 students this staff account may see (owner/manager: everyone who has signed in here; teacher: their own) */
 function members(){
@@ -55,7 +56,8 @@ function myClass(){
   const me = Cloud().uid, mgr = Cloud().isManager;
   return members().filter(s => s.teacherId === me || (mgr && !s.teacherId));
 }
-const openFor = k => members().filter(s => s.access[k]);
+const hasFor = (s, k) => !!(s.access[k] || openAll[k]);
+const openFor = k => members().filter(s => hasFor(s, k));
 
 /* homework → cloud (debounced per homework) */
 const hwTimers = {};
@@ -75,14 +77,15 @@ function syncBoard(k){
   boardTimers[k] = setTimeout(() => { if (Cloud()) Cloud().saveBoard(k, progress.boards[k] || null); }, 900);
 }
 
-let accessOff = null, peopleOff = null;
+let accessOff = null, peopleOff = null, openOff = null, assignOff = null, resetOff = null;
+let assignments = {};     // homework the teacher assigned to this student {id: {hw, note, dueDate, byName, at}}
 /* a student's opened lessons changed while the site is open: redraw lists, and leave a page that was closed */
 function onAccessChange(){
   const raw = location.hash.replace(/^#\/?/, ""), [path] = raw.split("?"), parts = path.split("/");
   const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
   if ((parts[0] === "u" || parts[0] === "present") && !hasAccess(parts[1])) return route_();
   if (parts[0] === "hw" && !hwOpen(+parts[1])) return route_();
-  if (!typing && (!path || parts[0] === "lessons" || parts[0] === "homeworks")) route_();
+  if (!typing && (!path || parts[0] === "lessons" || parts[0] === "homeworks" || parts[0] === "hw")) route_();
   else renderChrome(path);
 }
 /* staff: the student list changed (sign-ups, homework typed, access granted) */
@@ -91,7 +94,7 @@ function onPeople(){
   updateBadge();
   if (parts[0] === "settings" && window.SP1Settings) window.SP1Settings.refresh();
   else if (parts[0] === "u" && !P) refreshAccessBar(parts[1]);
-  else if (parts[0] === "lessons") document.querySelectorAll("[data-open-chip]").forEach(el => { const n = openFor(el.dataset.openChip).length; el.textContent = n ? `${t("openFor")} ${n}` : ""; el.hidden = !n; });
+  else if (parts[0] === "lessons") document.querySelectorAll("[data-open-chip]").forEach(el => { const k = el.dataset.openChip, n = openFor(k).length; el.textContent = openAll[k] ? t("openToAll") : n ? `${t("openFor")} ${n}` : ""; el.hidden = !n && !openAll[k]; });
 }
 function updateBadge(){
   const b = document.getElementById("setBadge"); if (!b || !people) return;
@@ -103,7 +106,19 @@ async function initUser(){
   progressKey = "sp1_progress_" + C.uid;
   progress = Object.assign(blankProgress(), load(progressKey, {}));
   if (accessOff){ accessOff(); accessOff = null; }
+  if (openOff){ openOff(); openOff = null; }
+  if (assignOff){ assignOff(); assignOff = null; }
+  if (resetOff){ resetOff(); resetOff = null; }
   if (peopleOff){ peopleOff(); peopleOff = null; }
+  const merge = () => { const before = JSON.stringify(access); access = Object.assign({}, openAll, myAccess); return before !== JSON.stringify(access); };
+  let openFirst = true;
+  await new Promise(res => {
+    openOff = C.watchOpenAll(v => {
+      openAll = Object.assign({}, v || {});
+      if (openFirst){ openFirst = false; return res(); }
+      if (isStaff()) onPeople(); else if (merge()) onAccessChange();
+    });
+  });
   if (isStaff()){
     people = { users:{}, progress:{}, access:{} };
     peopleOff = C.watchPeople(st => { people = st; onPeople(); });
@@ -111,10 +126,29 @@ async function initUser(){
     await new Promise(res => {
       let first = true;
       accessOff = C.watchMyAccess(v => {
-        const before = JSON.stringify(access); access = Object.assign({}, v || {});
+        myAccess = Object.assign({}, v || {});
+        const changed = merge();
         if (first){ first = false; return res(); }
-        if (before !== JSON.stringify(access)) onAccessChange();
+        if (changed) onAccessChange();
       });
+    });
+    assignOff = C.watchAssignments(C.uid, v => {
+      const changed = JSON.stringify(v) !== JSON.stringify(assignments);
+      assignments = v || {};
+      if (changed) onAccessChange();
+    });
+    // a teacher reset one of my homeworks: clear it here and in the cloud, then drop the request
+    resetOff = C.watchResets(C.uid, v => {
+      Object.keys(v || {}).forEach(id => {
+        const n = v[id] && v[id].hw;
+        if (n){ delete progress.hwInputs[n]; delete progress.hwChecks[n]; delete progress.hwDone[n]; progress.hwAt[n] = Date.now(); saveProgress();
+          C.saveHomework(n, { inputs:[], checks:[], done:null, at:progress.hwAt[n] }); }
+        C.doneReset(id).catch(() => {});
+      });
+      if (Object.keys(v || {}).length){
+        const m = location.hash.match(/^#\/hw\/(\d+)/);
+        if (m && v && Object.values(v).some(r => String(r.hw) === m[1])) route_();
+      }
     });
   }
   try{
@@ -165,7 +199,7 @@ const T = {
   answerKeyFor:["Javoblar (faqat oʻqituvchi uchun)","Answers (teacher only)"],
   teacherOnly:["Javoblar faqat Oʻqituvchi rejimida koʻrinadi.","The answer key is visible in Teacher mode only."],
   switchTeacher:["Oʻqituvchi rejimiga oʻtish","Switch to Teacher mode"],
-  hwNote:["Boʻsh joylarga javob yozing — ular shu qurilmada saqlanadi.","Type answers into the blanks — they are saved on this device."],
+  hwNote:["Boʻsh joylarga javob yozing — ular saqlanadi va oʻqituvchingiz koʻradi.","Type answers into the blanks — they are saved and your teacher sees them."],
   allFiles:["Speakup-1 papkasidagi barcha fayllar","Every file from the Speakup-1 folder"],
   lessonDecks:["Dars taqdimotlari","Lesson decks"], hwFiles:["Uy vazifalari","Homeworks"], akFiles:["Javoblar kaliti","Answer key"],
   open:["Ochish","Open"], download:["Yuklab olish","Download"], loading:["Yuklanmoqda…","Loading…"],
@@ -194,7 +228,10 @@ const T = {
   selectAll:["Hammasi","All"], selectNone:["Hech kim","None"], myClassLbl:["Mening sinfim","My class"],
   save:["Saqlash","Save"], cancel:["Bekor qilish","Cancel"], noMembers:["Hali oʻquvchilar yoʻq. Ular saytga kirgach shu yerda paydo boʻladi.","No students yet. They appear here after they sign in."],
   autoOpened:["Dars oʻquvchilarga ochildi:","Lesson opened for students:"], closeAll:["Hammaga yopish","Close for all"],
-  accessSaved:["Ruxsatlar saqlandi","Access saved"], noClass:["Bu darsni kimga ochishni «Oʻquvchilarga ruxsat berish» orqali tanlang.","Choose who gets this lesson with “Grant access to students”."]
+  accessSaved:["Ruxsatlar saqlandi","Access saved"], everyone:["Hamma oʻquvchilar","Every student"],
+  everyoneSub:["Keyin qoʻshiladigan yangi oʻquvchilar ham koʻradi","Students who join later get it too"], openToAll:["Hammaga ochiq","Open to everyone"],
+  lockedChip:["Yopiq","Locked"], assigned:["Oʻqituvchi bergan uy vazifalari","Homework from your teacher"],
+  due:["muddati","due"], fromTeacher:["Oʻqituvchidan","From your teacher"], noClass:["Bu darsni kimga ochishni «Oʻquvchilarga ruxsat berish» orqali tanlang.","Choose who gets this lesson with “Grant access to students”."]
 };
 const t = k => (T[k] ? T[k][settings.lang === "en" ? 1 : 0] : k);
 
@@ -298,6 +335,21 @@ function lockedView(){
 function emptyLessons(){
   return `<section class="panel empty-open"><span class="quick-ico">${I("lock", 24)}</span><div><h2>${t("noOpenLessons")}</h2><p class="panel-sub">${t("noOpenLessonsSub")}</p></div></section>`;
 }
+function assignedList(){
+  return Object.keys(assignments).map(id => Object.assign({ id }, assignments[id])).filter(a => hwByNum(a.hw))
+    .sort((a, b) => (progress.hwDone[a.hw] ? 1 : 0) - (progress.hwDone[b.hw] ? 1 : 0) || (a.dueDate || "9").localeCompare(b.dueDate || "9") || (b.at || 0) - (a.at || 0));
+}
+function assignedPanel(){
+  const list = assignedList();
+  if (!list.length) return "";
+  return `<section class="panel assigned-panel"><div class="panel-head"><h2>${t("assigned")}</h2></div><div class="unit-list">${list.map(a => {
+    const h = hwByNum(a.hw), done = !!progress.hwDone[a.hw];
+    return `<a class="unit-row${done ? " done" : ""}" href="#/hw/${a.hw}" style="text-decoration:none">
+      <span class="unit-badge"><small>UY</small><b>${done ? I("check", 22) : a.hw}</b></span>
+      <span class="unit-main"><h3>${esc(h.title)}</h3><p class="unit-meta">${a.dueDate ? `${t("due")}: ${esc(a.dueDate)}` : esc(h.subtitle)}${a.note ? ` · “${esc(a.note)}”` : ""}${a.byName ? ` · ${esc(a.byName)}` : ""}</p></span>
+      <span class="unit-side"><span class="chip${done ? " ok" : " accent"}">${done ? t("done") : t("openHomework")}</span></span></a>`;
+  }).join("")}</div></section>`;
+}
 /* a student's home: the lessons their teacher has opened, newest first */
 function viewHomeStudent(){
   const keys = openedKeys().filter(k => unitByKey(k));
@@ -327,6 +379,7 @@ function viewHomeStudent(){
       <div class="stat-tile"><span class="stat-ico">${I("pencil", 18)}</span><span class="stat-num">${hwN}<span class="stat-den">/${hwList.length}</span></span><span class="stat-label">${t("hwDone")}</span></div>
     </div>
   </section>
+  ${assignedPanel()}
   ${keys.length ? `<section class="panel"><div class="panel-head"><h2>${t("myLessons")}</h2></div>
     <div class="unit-list">${keys.slice().reverse().map(k => unitRow(unitByKey(k))).join("")}</div></section>` : emptyLessons()}`;
 }
@@ -383,21 +436,26 @@ function unitRow(u){
   const k = keyOf(u), b = badgeTxt(u), done = !!progress.taught[k];
   const cls = u.type === "quiz" ? "quiz" : (u.type === "lesson" ? "" : "extra");
   const hw = u.type === "lesson" && hwByNum(u.num);
+  if (!hasAccess(k)) return `<div class="unit-row locked ${cls}" title="${t("lockedSub")}">
+    <span class="unit-badge"><small>${b[0]}</small><b>${I("lock", 20)}</b></span>
+    <span class="unit-main"><h3>${esc(u.title)}</h3><p class="unit-meta">${esc(unitName(u))}${u.objectives && u.objectives.length ? " · " + esc(u.objectives.slice(0, 3).join(" · ")) : ""}</p></span>
+    <span class="unit-side"><span class="chip">${I("lock", 12)} ${t("lockedChip")}</span></span></div>`;
   return `<a class="unit-row ${cls}${done ? " done" : ""}" href="#/u/${k}" style="text-decoration:none">
     <span class="unit-badge"><small>${b[0]}</small><b>${done ? I("check", 22) : b[1]}</b></span>
     <span class="unit-main"><h3>${esc(u.title)}</h3><p class="unit-meta">${esc(unitName(u))} · ${u.slides.length} ${t("slides")}${u.objectives && u.objectives.length ? " · " + esc(u.objectives.slice(0, 3).join(" · ")) : ""}</p></span>
-    <span class="unit-side">${isStaff() && (u.type === "lesson" || u.type === "quiz") ? `<span class="chip accent" data-open-chip="${k}" ${openFor(k).length ? "" : "hidden"}>${t("openFor")} ${openFor(k).length}</span>` : ""}${done && isStaff() ? `<span class="chip ok">${t("taught")}</span>` : ""}${u.type === "quiz" ? `<span class="chip quiz">${t("quizzesHeld")}</span>` : ""}${hw ? `<span class="chip${progress.hwDone[u.num] ? " ok" : ""}">${t("homework")} ${u.num}${progress.hwDone[u.num] && !isStaff() ? " ✓" : ""}</span>` : ""}</span>
+    <span class="unit-side">${isStaff() && (u.type === "lesson" || u.type === "quiz") ? `<span class="chip accent" data-open-chip="${k}" ${openFor(k).length || openAll[k] ? "" : "hidden"}>${openAll[k] ? t("openToAll") : `${t("openFor")} ${openFor(k).length}`}</span>` : ""}${done && isStaff() ? `<span class="chip ok">${t("taught")}</span>` : ""}${u.type === "quiz" ? `<span class="chip quiz">${t("quizzesHeld")}</span>` : ""}${hw ? `<span class="chip${progress.hwDone[u.num] ? " ok" : ""}">${t("homework")} ${u.num}${progress.hwDone[u.num] && !isStaff() ? " ✓" : ""}</span>` : ""}</span>
   </a>`;
 }
 
 function viewLessons(query){
   const only = +(new URLSearchParams(query).get("part") || 0);
   if (!isStaff()){
-    const open = D.units.filter(u => hasAccess(keyOf(u)));
-    $app.innerHTML = `<div class="section-title"><div><h1>${t("myLessons")}</h1><p>${open.length} ${t("openedLessons").toLowerCase()}</p></div></div>
-      ${open.length ? D.parts.filter(p => open.some(u => u.part === p.num)).map(p => `
+    const all = D.units.filter(u => u.type === "lesson" || u.type === "quiz"), open = all.filter(u => hasAccess(keyOf(u)));
+    $app.innerHTML = `<div class="section-title"><div><h1>${t("lessons")}</h1><p>${open.length}/${all.length} ${t("openedLessons").toLowerCase()}</p></div></div>
+      ${open.length ? "" : emptyLessons()}
+      ${D.parts.map(p => `
       <section class="part-panel"><div class="part-head"><div><p class="eyebrow">${partName(p.num).toUpperCase()}</p><h2>${esc(p.title)}</h2></div></div>
-        <div class="unit-list">${open.filter(u => u.part === p.num).map(unitRow).join("")}</div></section>`).join("") : emptyLessons()}`;
+        <div class="unit-list">${all.filter(u => u.part === p.num).map(unitRow).join("")}</div></section>`).join("")}`;
     return;
   }
   $app.innerHTML = `
@@ -419,10 +477,10 @@ function viewLessons(query){
 function accessBarHtml(k){
   const u = unitByKey(k);
   if (!isStaff() || !u || (u.type !== "lesson" && u.type !== "quiz")) return "";
-  const all = members(), on = openFor(k);
+  const all = members(), on = openFor(k), every = !!openAll[k];
   return `<section class="panel access-bar" id="accessBar">
-    <span class="quick-ico">${I(on.length ? "unlock" : "lock", 22)}</span>
-    <div class="grow"><b>${on.length ? `${on.length}/${all.length} ${t("openForN")}` : t("notOpenYet")}</b>
+    <span class="quick-ico">${I(on.length || every ? "unlock" : "lock", 22)}</span>
+    <div class="grow"><b>${every ? `${t("openToAll")} · ${t("everyoneSub").toLowerCase()}` : on.length ? `${on.length}/${all.length} ${t("openForN")}` : t("notOpenYet")}</b>
       <p class="panel-sub">${on.length ? esc(on.slice(0, 6).map(s => (s.name || s.email || "").split(" ")[0]).join(", ")) + (on.length > 6 ? " …" : "") : t("grantSub")}</p></div>
     <button class="btn btn-accent btn-sm" id="grantBtn">${I("unlock", 16)}${t("grantAccess")}</button>
   </section>`;
@@ -434,29 +492,50 @@ function refreshAccessBar(k){
   const b = document.getElementById("grantBtn"); if (b) b.onclick = () => openGrantModal(k);
 }
 /* "Grant access to students": tick who sees this lesson (and its homework) */
-function openGrantModal(k){
-  const u = unitByKey(k), all = members();
-  const cls = new Set(myClass().map(s => s.uid)), anyOpen = all.some(s => s.access[k]);
+function openGrantModal(keysIn){
+  const keys = [].concat(keysIn).filter(k => unitByKey(k)), all = members();
+  if (!keys.length) return;
+  const first = unitByKey(keys[0]), last = unitByKey(keys[keys.length - 1]);
+  const hasAll = s => keys.every(k => s.access[k]);
+  const cls = new Set(myClass().map(s => s.uid)), anyOpen = all.some(s => keys.some(k => s.access[k])), every = keys.every(k => openAll[k]);
+  const label = keys.length === 1 ? `${esc(unitName(first))} · ${esc(first.title)}` : `${keys.length} ${t("lessonsWord")}: ${esc(unitName(first))} – ${esc(unitName(last))}`;
   const root = document.getElementById("modalRoot");
   root.innerHTML = `<div class="modal-backdrop"><div class="modal-card">
-    <h2>${t("grantTitle")}</h2><p class="panel-sub">${esc(unitName(u))} · ${esc(u.title)}. ${t("grantSub")}</p>
+    <h2>${t("grantTitle")}</h2><p class="panel-sub">${label}. ${t("grantSub")}</p>
+    <label class="grant-row grant-all"><input type="checkbox" id="gAll" ${every ? "checked" : ""}><span class="grow"><b>${t("everyone")}</b><small>${t("everyoneSub")}</small></span></label>
     ${all.length ? `<div class="grant-tools"><button class="btn btn-ghost btn-sm" data-sel="all">${t("selectAll")}</button>
       <button class="btn btn-ghost btn-sm" data-sel="class">${t("myClassLbl")}</button><button class="btn btn-ghost btn-sm" data-sel="none">${t("selectNone")}</button></div>
-    <div class="grant-list">${all.map(s => `<label class="grant-row"><input type="checkbox" value="${s.uid}" ${(anyOpen ? s.access[k] : cls.has(s.uid)) ? "checked" : ""}>
-      <span class="grow"><b>${esc(s.name || s.email)}</b><small>${esc(s.email || "")}</small></span>${s.access[k] ? `<span class="chip ok">${I("unlock", 12)}</span>` : ""}</label>`).join("")}</div>`
-    : `<p>${t("noMembers")}</p>`}
-    <div class="modal-actions"><button class="btn btn-ghost" id="gCancel">${t("cancel")}</button>${all.length ? `<button class="btn btn-accent" id="gSave">${t("save")}</button>` : ""}</div>
+    <div class="grant-list">${all.map(s => `<label class="grant-row"><input type="checkbox" value="${s.uid}" ${(anyOpen ? hasAll(s) : cls.has(s.uid)) ? "checked" : ""}>
+      <span class="grow"><b>${esc(s.name || s.email)}</b><small>${esc(s.email || "")}</small></span>${hasAll(s) ? `<span class="chip ok">${I("unlock", 12)}</span>` : ""}</label>`).join("")}</div>`
+    : `<p class="panel-sub" style="margin-top:10px">${t("noMembers")}</p>`}
+    <div class="modal-actions"><button class="btn btn-ghost" id="gCancel">${t("cancel")}</button><button class="btn btn-accent" id="gSave">${t("save")}</button></div>
   </div></div>`;
-  const boxes = [...root.querySelectorAll(".grant-list input")];
-  root.querySelectorAll("[data-sel]").forEach(b => b.onclick = () => boxes.forEach(x => { x.checked = b.dataset.sel === "all" || (b.dataset.sel === "class" && cls.has(x.value)); }));
+  const boxes = [...root.querySelectorAll(".grant-list input")], gAll = root.querySelector("#gAll");
+  const syncAll = () => boxes.forEach(x => { x.disabled = gAll.checked; if (gAll.checked) x.checked = true; });
+  gAll.onchange = syncAll; syncAll();
+  root.querySelectorAll("[data-sel]").forEach(b => b.onclick = () => {
+    gAll.checked = b.dataset.sel === "all"; syncAll();
+    if (b.dataset.sel !== "all") boxes.forEach(x => { x.checked = b.dataset.sel === "class" && cls.has(x.value); });
+  });
   root.querySelector("#gCancel").onclick = () => { root.innerHTML = ""; };
   root.querySelector(".modal-backdrop").addEventListener("click", e => { if (e.target.classList.contains("modal-backdrop")) root.innerHTML = ""; });
   const sv = root.querySelector("#gSave");
-  if (sv) sv.onclick = async () => {
-    const want = new Set(boxes.filter(x => x.checked).map(x => x.value));
-    const on = all.filter(s => want.has(s.uid) && !s.access[k]).map(s => s.uid), off = all.filter(s => !want.has(s.uid) && s.access[k]).map(s => s.uid);
+  sv.onclick = async () => {
     sv.disabled = true;
-    try{ await Cloud().setAccess(on, k, true); await Cloud().setAccess(off, k, false); root.innerHTML = ""; toast(t("accessSaved")); }
+    try{
+      if (gAll.checked) await Cloud().setOpenAll(keys, true);
+      else {
+        const want = new Set(boxes.filter(x => x.checked).map(x => x.value)), changes = [];
+        all.forEach(s => keys.forEach(k => {
+          if (want.has(s.uid) && !s.access[k]) changes.push([s.uid, k, true]);
+          if (!want.has(s.uid) && s.access[k]) changes.push([s.uid, k, false]);
+        }));
+        await Cloud().setAccessMany(changes);
+        const wasAll = keys.filter(k => openAll[k]);
+        if (wasAll.length) await Cloud().setOpenAll(wasAll, false);
+      }
+      root.innerHTML = ""; toast(t("accessSaved"));
+    }
     catch(e){ sv.disabled = false; alert(e.message); }
   };
 }
@@ -464,6 +543,7 @@ function openGrantModal(k){
 function autoGrant(k){
   const u = unitByKey(k);
   if (!isStaff() || !u || (u.type !== "lesson" && u.type !== "quiz")) return;
+  if (openAll[k]) return;
   const todo = myClass().filter(s => !s.access[k]).map(s => s.uid);
   if (!todo.length){ if (!openFor(k).length) setTimeout(() => toast(t("noClass")), 600); return; }
   Cloud().setAccess(todo, k, true).then(() => toast(`${t("autoOpened")} ${todo.length}`)).catch(e => console.warn("grant", e));
@@ -527,18 +607,23 @@ function toggleTaught(k, force){
 function viewHomeworks(){
   const openN = D.homeworks.filter(h => hwOpen(h.num)).length;
   $app.innerHTML = `
-  <div class="section-title"><div><h1>${t("homeworks")}</h1><p>${isStaff() ? D.homeworks.length : openN} · ${t("hwNote")}</p></div></div>
-  ${!openN ? emptyLessons() : `<input class="search-input" id="hwSearch" type="search" placeholder="${t("search")}" autocomplete="off">`}
+  <div class="section-title"><div><h1>${t("homeworks")}</h1><p>${isStaff() ? D.homeworks.length : openN + "/" + D.homeworks.length} · ${t("hwNote")}</p></div></div>
+  ${isStaff() ? "" : assignedPanel()}
+  ${!openN ? emptyLessons() : ""}<input class="search-input" id="hwSearch" type="search" placeholder="${t("search")}" autocomplete="off">
   ${D.parts.map(p => {
-    const ls = lessons.filter(u => u.part === p.num && hwOpen(u.num));
+    const ls = lessons.filter(u => u.part === p.num);
     if (!ls.length) return "";
     return `<section class="part-panel" data-part="${p.num}">
       <div class="part-head"><div><p class="eyebrow">${partName(p.num).toUpperCase()}</p><h2>${t("homework")} ${ls[0].num}–${ls[ls.length - 1].num}</h2></div></div>
-      <div class="unit-list">${ls.map(u => hwByNum(u.num)).filter(Boolean).map(h => `
+      <div class="unit-list">${ls.map(u => hwByNum(u.num)).filter(Boolean).map(h => !hwOpen(h.num) ? `
+        <div class="unit-row hw-list-row locked" data-search="${esc((h.num + " " + h.title + " " + h.subtitle).toLowerCase())}">
+          <span class="unit-badge"><small>UY</small><b>${I("lock", 20)}</b></span>
+          <span class="unit-main"><h3>${esc(h.title)}</h3><p class="unit-meta">${esc(h.subtitle)}</p></span>
+          <span class="unit-side"><span class="chip">${I("lock", 12)} ${t("lockedChip")}</span></span></div>` : `
         <a class="unit-row hw-list-row${progress.hwDone[h.num] ? " done" : ""}" href="#/hw/${h.num}" style="text-decoration:none" data-search="${esc((h.num + " " + h.title + " " + h.subtitle).toLowerCase())}">
           <span class="unit-badge"><small>UY</small><b>${progress.hwDone[h.num] ? I("check", 22) : h.num}</b></span>
           <span class="unit-main"><h3>${esc(h.title)}</h3><p class="unit-meta">${esc(h.subtitle)}</p></span>
-          <span class="unit-side">${progress.hwDone[h.num] ? `<span class="chip ok">${t("done")}</span>` : ""}${isStaff() && progress.taught["lesson-" + h.num] ? `<span class="chip">${t("taught")}</span>` : ""}${isStaff() && openFor("lesson-" + h.num).length ? `<span class="chip accent">${t("openFor")} ${openFor("lesson-" + h.num).length}</span>` : ""}</span>
+          <span class="unit-side">${progress.hwDone[h.num] ? `<span class="chip ok">${t("done")}</span>` : ""}${isStaff() && progress.taught["lesson-" + h.num] ? `<span class="chip">${t("taught")}</span>` : ""}${isStaff() && openAll["lesson-" + h.num] ? `<span class="chip accent">${t("openToAll")}</span>` : isStaff() && openFor("lesson-" + h.num).length ? `<span class="chip accent">${t("openFor")} ${openFor("lesson-" + h.num).length}</span>` : ""}</span>
         </a>`).join("")}</div></section>`;
   }).join("")}`;
   const s = document.getElementById("hwSearch");
@@ -578,6 +663,7 @@ function viewHomework(n, query){
     ${sel ? "" : `<button class="btn btn-sm btn-ghost" id="hwClear">${t("clear")}</button>`}
   </div>
   ${sel ? `<p class="panel-sub no-print">${t("viewingStudent")}</p>` : `<p class="panel-sub no-print">${t("hwNote")}</p>`}
+  ${!isStaff() ? assignedList().filter(a => a.hw === n).map(a => `<section class="panel locked-note no-print">${I("clock", 20)}<span><b>${t("fromTeacher")}</b>${a.dueDate ? ` · ${t("due")}: ${esc(a.dueDate)}` : ""}${a.note ? ` · “${esc(a.note)}”` : ""}</span></section>`).join("") : ""}
   <article class="hw-sheet${sel ? " readonly" : ""}" id="hwSheet">${h.html}</article>
   ${ans && isStaff() ? (true ? `<section class="panel answer-panel">
       <div class="panel-head"><p class="eyebrow">${t("answerKeyFor")}</p><h2>${esc(ans.title)}</h2><p class="panel-sub">${esc(D.answerKey.intro)}</p></div>
@@ -661,7 +747,7 @@ async function viewStudent(uid){
     ${D.parts.map(pt => `<section class="part-panel"><div class="part-head"><div><p class="eyebrow">${partName(pt.num).toUpperCase()}</p></div></div>
       <div class="unit-list">${lessons.filter(u => u.part === pt.num).map(u => {
         const h = hwByNum(u.num); if (!h) return "";
-        const opened = !!(people && people.access[uid] && people.access[uid]["lesson-" + u.num]);
+        const opened = !!(openAll["lesson-" + u.num] || (people && people.access[uid] && people.access[uid]["lesson-" + u.num]));
         const f = (p.hwInputs[h.num] || []).filter(x => x).length, done = !!p.hwDone[h.num];
         return `<a class="unit-row hw-list-row${done ? " done" : ""}" href="#/hw/${h.num}?s=${encodeURIComponent(uid)}" style="text-decoration:none">
           <span class="unit-badge"><small>UY</small><b>${done ? I("check", 22) : h.num}</b></span>
@@ -1031,6 +1117,6 @@ window.addEventListener("tt-helper-ready", () => { try{ renderChrome(location.ha
 
 /* used by shared/sp1-settings.js */
 window.SP1App = { D, t, esc, I, toast, keyOf, unitByKey, unitName, partName, lessons, quizzes, hwByNum, fmtAgo,
-  members, myClass, openFor, openGrantModal, viewAnswers, isStaff, get people(){ return people; }, lang: () => settings.lang };
+  members, myClass, openFor, hasFor, openGrantModal, get openAll(){ return openAll; }, viewAnswers, isStaff, get people(){ return people; }, lang: () => settings.lang };
 if (window.SP1Cloud && window.SP1Cloud.user) boot(); else window.addEventListener("sp1:auth", boot);
 })();

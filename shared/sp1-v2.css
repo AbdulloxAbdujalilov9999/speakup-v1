@@ -49,3 +49,17 @@
 .grant-row b{ display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .grant-row small{ color:var(--muted); display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .modal-card .auth-label{ display:block; margin-top:6px; }
+.unit-row.locked{ opacity:.62; cursor:default; }
+.unit-row.locked:hover{ transform:none; box-shadow:none; }
+.unit-row.locked .unit-badge b{ display:grid; place-items:center; }
+.grant-all{ border:1.5px solid var(--accent); border-radius:12px; margin-top:12px; background:var(--accent-soft, transparent); }
+.range-bar, .bulk-bar{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 12px; }
+.range-bar .select{ flex:1 1 220px; min-width:0; max-width:340px; }
+.bulk-bar{ position:sticky; top:8px; z-index:5; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:8px 12px; }
+.bulk-bar b{ margin-right:auto; }
+.acc-row{ cursor:pointer; }
+.acc-pick{ width:20px; height:20px; accent-color:var(--accent); flex:none; margin-right:4px; }
+.assigned-panel .unit-meta{ white-space:normal; }
+.stat-row{ display:flex; flex-wrap:wrap; gap:12px; margin:14px 0; }
+.stat-row .stat-tile{ flex:1 1 140px; }
+.panel .stat-tile{ background:transparent; border:1px solid var(--line); }
