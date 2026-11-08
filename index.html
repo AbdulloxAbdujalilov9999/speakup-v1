@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="uz" translate="no">
+<head>
+<meta charset="utf-8">
+<meta name="google" content="notranslate">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SpeakUp-1 — English from Zero</title>
+<meta name="description" content="SpeakUp-1: 30 lessons, 15 checkpoint tests and 30 homeworks — English from Zero, for teachers and students.">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#5416B5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0F083B" media="(prefers-color-scheme: dark)">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="SpeakUp-1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/course.css">
+<link rel="stylesheet" href="shared/sp1.css">
+<script>
+  try{
+    var t = (JSON.parse(localStorage.getItem("sp1_settings")||"{}")||{}).theme;
+    if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+  }catch(e){}
+</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="#/" style="text-decoration:none">
+      <img class="brand-logo" src="icons/icon-192.png" alt="" width="34" height="34">
+      <div class="brand-text">
+        <span class="brand-mark">SPEAKUP-1</span>
+        <span class="brand-sub">ENGLISH FROM ZERO · 30 LESSONS</span>
+      </div>
+    </a>
+    <nav id="mainNav" aria-label="Main"></nav>
+    <div class="topbar-actions" id="topActions"></div>
+  </div>
+</header>
+
+<main id="app"></main>
+<div id="toast"></div>
+<div id="presenterRoot"></div>
+
+<script src="vendor/pdf.min.js"></script>
+<script src="data/content.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

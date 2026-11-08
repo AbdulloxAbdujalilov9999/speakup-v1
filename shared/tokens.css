@@ -1,0 +1,87 @@
+/* SpeakUp — brand tokens. Single source of truth for colour, radius and
+ * type, linked by both the course site and the admin dashboard.
+ *
+ * BRAND / COMPANY COLOUR:  SpeakUp Violet  #5416B5
+ *
+ * Palette (owner-provided gradient: #7F3AA1 -> #5416B5 -> #0F083B/#0C0516):
+ *   Brand 900  #0F083B   deepest — text on light, page background in dark mode
+ *   Brand 700  #5416B5   MAIN BRAND COLOUR — headers, primary buttons, logo
+ *   Brand 500  #7F3AA1   lighter violet — progress, highlights, secondary accents
+ *   Brand 200  #E3D4F7   soft lilac — soft fills, primary button in dark mode
+ *   Brand 50   #F8F4FC   near-white lavender — page background in light mode
+ */
+:root{
+  --brand-900:#0F083B;
+  --brand-700:#5416B5;
+  --brand-500:#7F3AA1;
+  --brand-200:#E3D4F7;
+  --brand-50:#F8F4FC;
+
+  color-scheme: light;
+  --paper:#F8F4FC;
+  --surface:#FFFFFF;
+  --surface-2:#EDE3F7;
+  --ink:#0F083B;
+  --muted:#6B5A85;
+  --line:#DDD0EE;
+  --accent:#5416B5;          /* primary: buttons, active states, links */
+  --accent-ink:#FFFFFF;
+  --accent-soft:#E7DAF6;     /* tinted fill behind accent-coloured things */
+  --accent-mid:#7F3AA1;
+  --accent-2:#1B7F57;        /* success / completed */
+  --danger:#C0392B;
+  --locked:#A9BBCC;
+  --progress:#7F3AA1;
+  --header-bg:#5416B5;
+  --header-ink:#F8F4FC;
+  --shadow: 0 1px 2px rgba(15,8,59,0.06), 0 6px 20px rgba(15,8,59,0.07);
+  --radius-s: 10px;
+  --radius-m: 16px;
+  --radius-l: 22px;
+  --font-display: 'Oswald', 'Arial Narrow', sans-serif;
+  --font-body: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Consolas', monospace;
+}
+
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --paper:#0F083B;
+    --surface:#1B1044;
+    --surface-2:#241659;
+    --ink:#F8F4FC;
+    --muted:#B6A2D6;
+    --line:#3C2A6B;
+    --accent:#E3D4F7;
+    --accent-ink:#0F083B;
+    --accent-soft:#33206B;
+    --accent-mid:#7F3AA1;
+    --accent-2:#4CC38A;
+    --danger:#FF8F7E;
+    --locked:#3B587A;
+    --progress:#7F3AA1;
+    --header-bg:#0F083B;
+    --header-ink:#F8F4FC;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 6px 20px rgba(0,0,0,0.35);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --paper:#0F083B;
+  --surface:#1B1044;
+  --surface-2:#241659;
+  --ink:#F8F4FC;
+  --muted:#B6A2D6;
+  --line:#3C2A6B;
+  --accent:#E3D4F7;
+  --accent-ink:#0F083B;
+  --accent-soft:#33206B;
+  --accent-mid:#7F3AA1;
+  --accent-2:#4CC38A;
+  --danger:#FF8F7E;
+  --locked:#3B587A;
+  --progress:#7F3AA1;
+  --header-bg:#0F083B;
+  --header-ink:#F8F4FC;
+  --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 6px 20px rgba(0,0,0,0.35);
+}
