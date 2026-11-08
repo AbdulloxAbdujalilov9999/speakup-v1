@@ -5,13 +5,19 @@
  *   sp1/progress/{uid}  a student's homework answers + done marks
  *                       (readable by owner/manager and the student's teacher)
  *   sp1/boards/{uid}    what a teacher typed onto lesson slides (private)
+ *   sp1/access/{uid}    the lessons a teacher has opened for this student
+ *                       ({ "lesson-3": {at, by}, "quiz-2": {...} }); a
+ *                       student sees only these lessons and their homework
+ * Anyone who has signed in here has a sp1/progress record, which is how
+ * the Settings pages tell SpeakUp-1's students from SpeakUp's.
  * Access control is in SpeakUp's database.rules.json (the "sp1" node). */
-import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
+import { initializeApp, getApps, deleteApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
 import {
   getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut,
   createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, updateProfile,
+  EmailAuthProvider, reauthenticateWithCredential, verifyBeforeUpdateEmail,
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
-import { getDatabase, ref, get, set, update, onValue, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js";
+import { getDatabase, ref, get, set, update, onValue, push, remove, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js";
 import { firebaseConfig, OWNER_EMAIL } from "./firebase-config.js";
 
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
@@ -119,16 +125,19 @@ const toArr = v => {
 };
 function normProgress(p){
   p = p || {};
-  const out = { hwDone:p.hwDone || {}, hwInputs:{}, hwChecks:{}, hwAt:p.hwAt || {}, updatedAt:p.updatedAt || 0 };
+  const out = { hwDone:p.hwDone || {}, hwInputs:{}, hwChecks:{}, hwAt:p.hwAt || {}, updatedAt:p.updatedAt || 0, lastSeen:p.lastSeen || 0, joined:!!(p.lastSeen || p.updatedAt || p.name) };
   Object.keys(p.hwInputs || {}).forEach(k => { out.hwInputs[k] = toArr(p.hwInputs[k]); });
   Object.keys(p.hwChecks || {}).forEach(k => { out.hwChecks[k] = toArr(p.hwChecks[k]).map(Boolean); });
   return out;
 }
 
+const isMgr = p => !!p && p.status === "approved" && (p.role === "owner" || p.role === "manager");
 let current = null, unsubMe = null;
 const Cloud = {
   ready:false, user:null, profile:null,
   get isStaff(){ const p = this.profile; return !!p && p.status === "approved" && STAFF.includes(p.role); },
+  get isManager(){ return isMgr(this.profile); },            // owner or manager
+  get isOwner(){ const p = this.profile; return !!p && p.status === "approved" && p.role === "owner"; },
   get uid(){ return this.user && this.user.uid; },
   signOut(){ return signOut(auth); },
   normProgress,
@@ -146,22 +155,123 @@ const Cloud = {
   },
   async loadBoards(){ return (await get(ref(db, "sp1/boards/" + this.uid))).val() || {}; },
   saveBoard(key, board){ if (this.uid) return set(ref(db, `sp1/boards/${this.uid}/${key}`), board || null).catch(e => console.warn("board", e)); },
-  /* staff: the students this account may see (owner/manager: everyone; teacher: their own) */
-  async listStudents(){
-    const p = this.profile, out = [];
-    if (p.role === "owner" || p.role === "manager"){
-      const all = (await get(ref(db, "users"))).val() || {};
-      Object.keys(all).forEach(uid => { const u = all[uid]; if (u && u.role === "student" && u.status !== "restricted") out.push(Object.assign({ uid }, u)); });
-    } else {
-      const ids = Object.keys((await get(ref(db, "teacherStudents/" + this.uid))).val() || {});
-      for (const uid of ids){ const u = (await get(ref(db, "users/" + uid))).val(); if (u) out.push(Object.assign({ uid }, u)); }
-    }
-    await Promise.all(out.map(async s => {
-      try{ s.sp1 = normProgress((await get(ref(db, "sp1/progress/" + s.uid))).val()); }catch(e){ s.sp1 = normProgress(null); }
-    }));
-    return out.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  },
   watchStudent(uid, cb){ return onValue(ref(db, "sp1/progress/" + uid), s => cb(normProgress(s.val())), () => cb(normProgress(null))); },
+
+  /* ---- lesson access ---- */
+  watchMyAccess(cb){ return onValue(ref(db, "sp1/access/" + this.uid), s => cb(s.val() || {}), () => cb({})); },
+  setAccess(uids, key, on){
+    const u = {};
+    uids.forEach(id => { u[`sp1/access/${id}/${key}`] = on ? { at: Date.now(), by: this.uid } : null; });
+    return Object.keys(u).length ? update(ref(db), u) : Promise.resolve();
+  },
+
+  /* ---- staff: everyone this account may see, live ----
+   * Owner/manager read /users, sp1/progress and sp1/access whole. A teacher
+   * reads their slice of SpeakUp's teacherStudents index, then each of
+   * those students individually (the same pattern as SpeakUp's admin).
+   * cb({ users: {uid: profile}, progress: {uid: normProgress}, access: {uid: {...}} }) on every change. */
+  watchPeople(cb){
+    const me = this, st = { users:{}, progress:{}, access:{} }, unsubs = [], per = new Map();
+    let t = null;
+    const emit = () => { clearTimeout(t); t = setTimeout(() => cb(st), 30); };
+    if (this.isManager){
+      unsubs.push(onValue(ref(db, "users"), s => { st.users = s.val() || {}; emit(); }, e => console.warn("users", e)));
+      unsubs.push(onValue(ref(db, "sp1/progress"), s => { const v = s.val() || {}; st.progress = {}; Object.keys(v).forEach(k => { st.progress[k] = normProgress(v[k]); }); emit(); }, e => console.warn("progress", e)));
+      unsubs.push(onValue(ref(db, "sp1/access"), s => { st.access = s.val() || {}; emit(); }, e => console.warn("access", e)));
+    } else {
+      unsubs.push(onValue(ref(db, "teacherStudents/" + this.uid), s => {
+        const ids = Object.keys(s.val() || {}), keep = new Set(ids);
+        for (const [id, offs] of per){ if (!keep.has(id)){ offs.forEach(f => f()); per.delete(id); delete st.users[id]; delete st.progress[id]; delete st.access[id]; } }
+        ids.forEach(id => {
+          if (per.has(id)) return;
+          per.set(id, [
+            onValue(ref(db, "users/" + id), x => { if (x.exists()) st.users[id] = x.val(); else delete st.users[id]; emit(); }, () => {}),
+            onValue(ref(db, "sp1/progress/" + id), x => { st.progress[id] = normProgress(x.val()); emit(); }, () => {}),
+            onValue(ref(db, "sp1/access/" + id), x => { st.access[id] = x.val() || {}; emit(); }, () => {}),
+          ]);
+        });
+        if (me.profile) st.users[me.uid] = me.profile;
+        emit();
+      }, e => console.warn("teacherStudents", e)));
+    }
+    return () => { unsubs.forEach(f => f()); per.forEach(offs => offs.forEach(f => f())); clearTimeout(t); };
+  },
+
+  /* ---- admin writes (copied from SpeakUp's admin/admin.js) ---- */
+  async approveUser(uid, role, teacherId, old){
+    const oldTeacherId = old && old.teacherId;
+    const u = {
+      [`users/${uid}/role`]: role, [`users/${uid}/status`]: "approved", [`users/${uid}/updatedAt`]: serverTimestamp(),
+      [`users/${uid}/teacherId`]: role === "student" ? (teacherId || null) : null,
+    };
+    if (oldTeacherId && oldTeacherId !== teacherId) u[`teacherStudents/${oldTeacherId}/${uid}`] = null;
+    if (role === "student" && teacherId) u[`teacherStudents/${teacherId}/${uid}`] = true;
+    await update(ref(db), u);
+  },
+  setUserStatus(uid, status){ return update(ref(db), { [`users/${uid}/status`]: status, [`users/${uid}/updatedAt`]: serverTimestamp() }); },
+  async setUserRole(uid, role, old){
+    const oldTeacherId = old && old.teacherId;
+    const u = { [`users/${uid}/role`]: role, [`users/${uid}/updatedAt`]: serverTimestamp() };
+    if (role === "student") u[`users/${uid}/teacherId`] = oldTeacherId || null;
+    else { u[`users/${uid}/teacherId`] = null; if (oldTeacherId) u[`teacherStudents/${oldTeacherId}/${uid}`] = null; }
+    await update(ref(db), u);
+  },
+  async reassignTeacher(uid, teacherId, old){
+    const oldTeacherId = old && old.teacherId;
+    const u = { [`users/${uid}/teacherId`]: teacherId || null, [`users/${uid}/updatedAt`]: serverTimestamp() };
+    if (oldTeacherId && oldTeacherId !== teacherId) u[`teacherStudents/${oldTeacherId}/${uid}`] = null;
+    if (teacherId) u[`teacherStudents/${teacherId}/${uid}`] = true;
+    await update(ref(db), u);
+  },
+  // Removes a restricted person's records (their sign-in account stays; that needs the Admin SDK).
+  async deleteUser(uid, u, allUsers){
+    const x = {
+      [`users/${uid}`]: null, [`progress/${uid}`]: null, [`resets/${uid}`]: null, [`assignments/${uid}`]: null,
+      [`sp1/progress/${uid}`]: null, [`sp1/access/${uid}`]: null,
+    };
+    if (u.role === "student" && u.teacherId) x[`teacherStudents/${u.teacherId}/${uid}`] = null;
+    if (u.role === "teacher"){
+      x[`teacherStudents/${uid}`] = null; x[`events/${uid}`] = null;
+      Object.keys(allUsers || {}).forEach(id => { const s = allUsers[id]; if (s && s.role === "student" && s.teacherId === uid) x[`users/${id}/teacherId`] = null; });
+    }
+    await update(ref(db), x);
+  },
+  sendReset(email){ return sendPasswordResetEmail(auth, email); },
+  async changeEmail(newEmail, currentPassword){
+    const user = auth.currentUser;
+    await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPassword));
+    await verifyBeforeUpdateEmail(user, newEmail);
+  },
+  get providerId(){ const u = auth.currentUser; return (u && u.providerData[0] && u.providerData[0].providerId) || ""; },
+  // The sign-in account is made on a throwaway app instance so the owner stays signed in.
+  async createManagedUser({ name, email, password, role, teacherId }){
+    if (!this.isOwner) throw new Error("Only the owner can add users.");
+    const secondary = initializeApp(firebaseConfig, "sp1-add-user-" + Date.now());
+    let uid;
+    try{
+      const a2 = getAuth(secondary);
+      const cred = await createUserWithEmailAndPassword(a2, email, password);
+      uid = cred.user.uid;
+      await signOut(a2);
+    } finally { deleteApp(secondary).catch(() => {}); }
+    const profile = { name, email, provider: "password", status: "approved", role, createdBy: this.uid,
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp(), lastActive: serverTimestamp() };
+    const u = {};
+    if (role === "student" && teacherId){ profile.teacherId = teacherId; u[`teacherStudents/${teacherId}/${uid}`] = true; }
+    u[`users/${uid}`] = profile;
+    if (role === "student") u[`sp1/progress/${uid}/name`] = name;   // shows up as a SpeakUp-1 student straight away
+    await update(ref(db), u);
+    return uid;
+  },
+
+  /* ---- calendar (SpeakUp's events/{teacherId}) ---- */
+  watchEvents(teacherId, cb){ return onValue(ref(db, "events/" + teacherId), s => cb(s.val() || {}), () => cb({})); },
+  saveEvent(teacherId, id, payload){
+    payload = Object.assign({}, payload, { updatedAt: serverTimestamp() });
+    if (id) return update(ref(db, `events/${teacherId}/${id}`), payload);
+    return set(push(ref(db, `events/${teacherId}`)), Object.assign({ createdAt: serverTimestamp() }, payload));
+  },
+  deleteEvent(teacherId, id){ return remove(ref(db, `events/${teacherId}/${id}`)); },
 };
 window.SP1Cloud = Cloud;
 
@@ -169,7 +279,7 @@ renderLoading();
 onAuthStateChanged(auth, async user => {
   if (unsubMe){ unsubMe(); unsubMe = null; }
   if (!user){
-    Cloud.user = Cloud.profile = null; showApp(false); renderSignIn();
+    Cloud.user = Cloud.profile = null; window.SU_user = null; showApp(false); renderSignIn();
     if (current) location.reload();
     return;
   }
@@ -178,11 +288,17 @@ onAuthStateChanged(auth, async user => {
     const profile = await ensureProfile(user);
     if (profile.status === "restricted") return renderBlocked();
     Cloud.user = user; Cloud.profile = profile;
+    const setSU = p => {   // what the AI teacher (shared/tutor-ui.js) reads
+      window.SU_user = { uid: user.uid, name: p.name, email: p.email || user.email, role: p.role, teacherId: p.teacherId || null };
+    };
+    setSU(profile);
+    window.SU_getToken = () => user.getIdToken();
     update(ref(db, "users/" + user.uid), { lastActive: serverTimestamp() }).catch(() => {});
+    update(ref(db, "sp1/progress/" + user.uid), { name: profile.name || "", lastSeen: Date.now() }).catch(() => {});
     unsubMe = onValue(ref(db, "users/" + user.uid), s => {
       const p = s.val(); if (!p) return;
       const roleChanged = Cloud.profile && (Cloud.profile.role !== p.role || Cloud.profile.status !== p.status);
-      Cloud.profile = p;
+      Cloud.profile = p; setSU(p);
       if (p.status === "restricted") return renderBlocked();
       if (roleChanged && window.SP1_refresh) window.SP1_refresh();
     });

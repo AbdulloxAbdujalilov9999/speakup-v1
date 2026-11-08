@@ -1,0 +1,133 @@
+/* Admin dashboard styles, copied from SpeakUp's admin/index.html (user rows, tables, modals, calendar). */
+  .select{ padding:11px 12px; min-height:46px; border-radius:12px; border:1.5px solid var(--line); background:var(--surface); color:var(--ink); font-family:var(--font-body); max-width:100%; }
+  .panel-head-row{ display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+  .panel-head-row h2{ font-size:1.25rem; margin-bottom:4px; }
+  .filter-count{ opacity:0.7; font-weight:500; }
+  .filter-bar{ max-width:100%; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; margin-bottom:12px; }
+  .filter-bar::-webkit-scrollbar{ display:none; }
+  .panel-head-row .filter-bar{ margin-bottom:0; }
+  @media (max-width:640px){
+    .panel{ padding:18px 16px; }
+    .panel-head-row > .btn, .panel-head-row > .select{ flex:1 1 100%; }
+    .stat-row{ display:grid; grid-template-columns:repeat(2,1fr); }
+    .stat-tile{ min-width:0; }
+  }
+
+  /* ---------- Users ----------
+   * Each row is two stacked lines — identity+badges on top, editable
+   * controls (teacher/role pickers, action buttons) on the bottom, always
+   * right-aligned — rather than one line of independently-wrapping pieces.
+   * A long email or a long teacher name then only ever pushes its own
+   * line, instead of breaking the row into a disconnected-looking jumble. */
+  .user-row{ display:flex; flex-direction:column; gap:10px; padding:14px 4px; border-top:1px solid var(--line); }
+  .user-row:first-of-type{ border-top:none; }
+  .user-row.restricted{ opacity:0.5; }
+  .user-row.restricted .user-row-top{ justify-content:flex-start; }
+  .user-row-top{ display:flex; align-items:center; justify-content:space-between; gap:10px 14px; flex-wrap:wrap; }
+  .user-row-main{ display:flex; align-items:center; gap:10px; min-width:0; flex:1 1 200px; }
+  .user-avatar{ width:32px; height:32px; border-radius:50%; flex-shrink:0; object-fit:cover; }
+  .user-avatar-fallback{
+    display:flex; align-items:center; justify-content:center; background:var(--surface-2);
+    font-weight:700; color:var(--muted);
+  }
+  .user-identity{ min-width:0; }
+  .user-name{ font-weight:600; display:block; }
+  .user-email{
+    display:block; font-size:0.8rem; color:var(--muted); max-width:100%;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .user-row-badges{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; flex:0 1 auto; }
+  .user-row-controls{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+  .user-row-controls .select{ min-width:0; max-width:190px; text-overflow:ellipsis; }
+  .user-row-controls .btn{ white-space:nowrap; }
+  .user-badge{
+    font-size:0.7rem; text-transform:uppercase; letter-spacing:0.04em; padding:3px 9px;
+    border-radius:99px; background:var(--surface-2); color:var(--ink); white-space:nowrap;
+  }
+  .status-pending{ background:var(--accent); color:var(--accent-ink); }
+  .status-trial{ background:var(--accent-mid); color:#fff; }
+  .status-approved{ background:var(--accent-2); color:#fff; }
+  .status-restricted{ background:var(--danger); color:#fff; }
+  .user-joined{ font-size:0.72rem; color:var(--muted); white-space:nowrap; }
+  .role-owner{ background:var(--ink); color:var(--accent-ink); }
+
+  .reset-row{ display:flex; gap:10px; flex-wrap:wrap; }
+  .reset-row .select{ flex:1 1 260px; min-width:0; }
+  .reset-log-row{ display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; padding:8px 0; border-top:1px solid var(--line); font-size:0.9rem; }
+
+  /* ---------- Tables ---------- */
+  .table-wrap{ overflow-x:auto; }
+  .admin-table{ width:100%; border-collapse:collapse; font-size:0.88rem; }
+  .admin-table th{ text-align:left; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted); padding:8px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  .admin-table td{ padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  .admin-table tr:last-child td{ border-bottom:none; }
+
+  .pick-list{ display:flex; flex-direction:column; }
+  .pick-row{
+    display:flex; justify-content:space-between; gap:10px; width:100%; text-align:left;
+    background:none; border:none; border-top:1px solid var(--line); padding:12px 4px; color:var(--ink); font-size:0.92rem;
+  }
+  .pick-row:first-child{ border-top:none; }
+  .pick-row:hover{ background:var(--surface-2); }
+
+  @media (max-width:640px){
+    .user-row{ padding:14px 0; }
+    .user-row-main{ align-items:center; }
+    .user-avatar{ width:38px; height:38px; }
+    /* Plenty of vertical room on a phone — wrap the full email instead of clipping it. */
+    .user-email{ overflow:visible; text-overflow:clip; white-space:normal; overflow-wrap:anywhere; }
+    .user-row-controls{ display:grid; grid-template-columns:1fr 1fr; gap:8px; justify-content:stretch; }
+    .user-row-controls .btn, .user-row-controls .select{ width:100%; max-width:none; }
+    .user-row-controls > :only-child{ grid-column:1 / -1; }
+    .reset-row .select{ flex:1 1 100%; }
+
+    /* Tables become stacked cards on phones (labels come from each column header) */
+    .table-wrap{ overflow:visible; }
+    .admin-table, .admin-table tbody, .admin-table tr, .admin-table td{ display:block; width:100%; }
+    .admin-table thead{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
+    .admin-table tr{ border:1px solid var(--line); border-radius:14px; padding:6px 12px; margin-bottom:10px; background:var(--surface-2); }
+    .admin-table tr:last-child{ margin-bottom:0; }
+    .admin-table td{ border-bottom:1px solid var(--line); padding:9px 0; display:flex; justify-content:space-between; align-items:center; gap:12px; text-align:right; overflow-wrap:anywhere; }
+    .admin-table td:last-child{ border-bottom:none; }
+    .admin-table td::before{ content:attr(data-label); font-size:0.7rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); text-align:left; flex-shrink:0; }
+    .admin-table td[data-label=""]::before{ display:none; }
+    .admin-table td[data-label=""]{ justify-content:stretch; }
+    .admin-table td.mono{ font-size:0.8rem; }
+    .admin-table td .btn, .admin-table td .select{ width:100%; }
+
+    .cal-event{ flex-direction:column; gap:4px; }
+  }
+
+  /* ---------- Calendar ---------- */
+  .cal-group{ padding:14px 0; border-top:1px solid var(--line); }
+  .cal-group:first-of-type{ border-top:none; padding-top:0; }
+  .cal-date{ font-size:0.8rem; color:var(--muted); margin-bottom:10px; }
+  .cal-event{
+    display:flex; gap:14px; align-items:flex-start; padding:10px; border-radius:var(--radius-s);
+    background:var(--surface-2); margin-bottom:8px; cursor:pointer;
+  }
+  .cal-event:hover{ filter:brightness(0.98); }
+  .cal-event-time{ font-family:var(--font-mono); font-size:0.8rem; color:var(--muted); white-space:nowrap; padding-top:2px; }
+  .cal-event-title{ font-weight:600; display:block; }
+  .cal-event-students{ display:block; font-size:0.8rem; color:var(--muted); }
+
+  /* ---------- Modal ---------- */
+  .modal-backdrop{
+    position:fixed; inset:0; background:rgba(15,8,59,0.6); display:flex; align-items:center; justify-content:center;
+    padding:20px; z-index:100; overflow-y:auto;
+  }
+  .modal-card{
+    width:100%; max-width:440px; background:var(--surface); border-radius:var(--radius-m);
+    padding:26px; box-shadow:var(--shadow); max-height:calc(100vh - 40px); overflow-y:auto;
+  }
+  .modal-card h2{ font-size:1.1rem; margin-bottom:6px; }
+  .modal-actions{ display:flex; justify-content:flex-end; gap:10px; margin-top:18px; flex-wrap:wrap; }
+  .role-choice{ display:flex; gap:16px; margin:6px 0 4px; font-size:0.9rem; }
+  .role-choice label{ display:flex; align-items:center; gap:6px; }
+
+  @media (max-width:640px){
+    .modal-backdrop{ align-items:flex-end; padding:0; }
+    .modal-card{ max-width:none; border-radius:22px 22px 0 0; padding:22px 18px calc(22px + env(safe-area-inset-bottom)); max-height:88dvh; }
+    .modal-actions{ flex-direction:column-reverse; }
+    .modal-actions .btn{ width:100%; }
+  }
