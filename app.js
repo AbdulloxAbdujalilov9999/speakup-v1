@@ -380,8 +380,9 @@ function viewHomeStudent(){
     </div>
   </section>
   ${assignedPanel()}
-  ${keys.length ? `<section class="panel"><div class="panel-head"><h2>${t("myLessons")}</h2></div>
-    <div class="unit-list">${keys.slice().reverse().map(k => unitRow(unitByKey(k))).join("")}</div></section>` : emptyLessons()}`;
+  ${keys.length ? "" : emptyLessons()}
+  ${D.parts.map(p => `<section class="part-panel"><div class="part-head"><div><p class="eyebrow">${partName(p.num).toUpperCase()}</p><h2>${esc(p.title)}</h2></div></div>
+    <div class="unit-list">${D.units.filter(u => u.part === p.num && (u.type === "lesson" || u.type === "quiz")).map(unitRow).join("")}</div></section>`).join("")}`;
 }
 
 function viewHome(){
