@@ -250,7 +250,7 @@ function viewUnit(k){
       <a class="btn btn-sm" href="${href(p.pdf)}#page=${u.start}" target="_blank" rel="noopener">${I("file", 16)}PDF</a></div>
     <div class="slide-grid">${u.slides.map((s, i) => `
       <a class="slide-thumb" href="#/present/${k}/${i}" style="text-decoration:none">
-        <span class="thumb-canvas" data-part="${u.part}" data-page="${s.n}"></span>
+        <span class="thumb-canvas" data-src="${u.pdf}" data-page="${i + 1}"></span>
         <span class="thumb-label">${i + 1}. ${esc(s.label)}</span>
         <span class="thumb-title">${esc(s.title || s.label)}</span>
       </a>`).join("")}</div>
@@ -387,13 +387,13 @@ function notFound(){ $app.innerHTML = `<section class="panel"><h2>404</h2><p><a 
 
 /* ---------------- PDF rendering ---------------- */
 const pdfDocs = {};
-function getPdf(part){
+function getPdf(src){
   if (!window.pdfjsLib) return Promise.reject(new Error("pdf.js missing"));
-  if (!pdfDocs[part]) pdfDocs[part] = pdfjsLib.getDocument({ url:href(D.parts[part - 1].pdf), disableRange:true, disableStream:true, disableAutoFetch:true }).promise.catch(e => { delete pdfDocs[part]; throw e; });
-  return pdfDocs[part];
+  if (!pdfDocs[src]) pdfDocs[src] = pdfjsLib.getDocument({ url:href(src), disableRange:true, disableStream:true, disableAutoFetch:true }).promise.catch(e => { delete pdfDocs[src]; throw e; });
+  return pdfDocs[src];
 }
-async function renderPage(part, pageNum, canvas, cssW, cssH){
-  const pdf = await getPdf(part);
+async function renderPage(src, pageNum, canvas, cssW, cssH){
+  const pdf = await getPdf(src);
   const page = await pdf.getPage(pageNum);
   const vp1 = page.getViewport({ scale:1 });
   const scale = Math.min(cssW / vp1.width, cssH ? cssH / vp1.height : Infinity);
@@ -413,7 +413,7 @@ function lazyThumbs(){
       if (!e.isIntersecting) return;
       const box = e.target; thumbObserver.unobserve(box);
       const c = document.createElement("canvas"); box.appendChild(c);
-      renderPage(+box.dataset.part, +box.dataset.page, c, box.clientWidth || 200)
+      renderPage(box.dataset.src, +box.dataset.page, c, box.clientWidth || 200)
         .then(task => task.promise).then(() => { c.style.width = "100%"; c.style.height = "100%"; })
         .catch(() => { box.textContent = ""; });
     });
@@ -467,7 +467,7 @@ function openPresenter(k, startIdx){
     if (task){ try{ task.cancel(); }catch(e){} task = null; }
     const s = u.slides[cur];
     const w = stage.clientWidth - 24, h = stage.clientHeight - 24;
-    renderPage(u.part, s.n, canvas, w, h).then(tk => { task = tk; return tk.promise; }).then(() => { task = null; const l = document.getElementById("prLoading"); if (l) l.remove(); })
+    renderPage(u.pdf, cur + 1, canvas, w, h).then(tk => { task = tk; return tk.promise; }).then(() => { task = null; const l = document.getElementById("prLoading"); if (l) l.remove(); })
       .catch(e => { if (e && e.name === "RenderingCancelledException") return; showError(); });
   }
   function showError(){

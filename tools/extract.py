@@ -153,6 +153,21 @@ for line in akp[2:]:
 answer_key = {'title': akp[0], 'intro': akp[1], 'docx': 'content/3 - Answers/Homework - Answer Key.docx',
               'pdf': 'content/3 - Answers/PDF/Homework - Answer Key.pdf', 'lessons': answers}
 
+# split each part PDF into one small PDF per lesson/test, so a lesson loads fast online
+try:
+    from pypdf import PdfReader, PdfWriter
+except ImportError:
+    sys.exit('pip3 install --user pypdf')
+os.makedirs(os.path.join(OUT, 'slides'), exist_ok=True)
+readers = {p['num']: PdfReader(os.path.join(SRC, '1 - Lessons', 'PDF', os.path.basename(p['pdf']))) for p in parts}
+for u in units:
+    w = PdfWriter()
+    for s in range(u['start'], u['end'] + 1):
+        w.add_page(readers[u['part']].pages[s - 1])
+    name = 'slides/part%d-%s-%02d.pdf' % (u['part'], u['type'], u['num'])
+    with open(os.path.join(OUT, name), 'wb') as fh: w.write(fh)
+    u['pdf'] = name
+
 data = {'parts': parts, 'units': units, 'homeworks': homeworks, 'answerKey': answer_key}
 os.makedirs(os.path.join(OUT, 'data'), exist_ok=True)
 with open(os.path.join(OUT, 'data', 'content.js'), 'w', encoding='utf-8') as fh:
