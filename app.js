@@ -21,10 +21,58 @@ function load(key, fallback){
   catch(e){ return fallback; }
 }
 function save(key, val){ try{ localStorage.setItem(key, JSON.stringify(val)); }catch(e){} }
-const settings = Object.assign({ lang:"uz", teacher:true, skipAnswers:false }, load("sp1_settings", {}));
-const progress = Object.assign({ taught:{}, hwDone:{}, hwInputs:{}, hwChecks:{}, lastSlide:{} }, load("sp1_progress", {}));
+const settings = Object.assign({ lang:"uz", skipAnswers:false }, load("sp1_settings", {}));
+const blankProgress = () => ({ taught:{}, hwDone:{}, hwInputs:{}, hwChecks:{}, hwAt:{}, lastSlide:{}, boards:{} });
+let progress = blankProgress();
+let progressKey = "sp1_progress";
 const saveSettings = () => save("sp1_settings", settings);
-const saveProgress = () => save("sp1_progress", progress);
+const saveProgress = () => save(progressKey, progress);
+const Cloud = () => window.SP1Cloud;
+const isStaff = () => !!(Cloud() && Cloud().isStaff);
+
+/* homework → cloud (debounced per homework) */
+const hwTimers = {};
+function syncHomework(n){
+  progress.hwAt[n] = Date.now(); saveProgress();
+  clearTimeout(hwTimers[n]);
+  hwTimers[n] = setTimeout(() => {
+    if (!Cloud()) return;
+    Cloud().saveHomework(n, { inputs:progress.hwInputs[n] || [], checks:progress.hwChecks[n] || [], done:progress.hwDone[n] || null, at:progress.hwAt[n] });
+  }, 700);
+}
+/* slide boards → cloud (debounced per lesson) */
+const boardTimers = {};
+function syncBoard(k){
+  saveProgress();
+  clearTimeout(boardTimers[k]);
+  boardTimers[k] = setTimeout(() => { if (Cloud()) Cloud().saveBoard(k, progress.boards[k] || null); }, 900);
+}
+
+async function initUser(){
+  const C = Cloud();
+  progressKey = "sp1_progress_" + C.uid;
+  progress = Object.assign(blankProgress(), load(progressKey, {}));
+  if (!isStaff()) settings.teacher = false;
+  else if (settings.teacher === undefined) settings.teacher = true;
+  try{
+    const remote = await C.loadMyProgress();
+    // newest copy of each homework wins (this device vs the cloud)
+    const nums = new Set(Object.keys(remote.hwAt).concat(Object.keys(progress.hwAt)));
+    nums.forEach(n => {
+      const r = remote.hwAt[n] || 0, l = progress.hwAt[n] || 0;
+      if (r > l){
+        progress.hwInputs[n] = remote.hwInputs[n] || []; progress.hwChecks[n] = remote.hwChecks[n] || [];
+        if (remote.hwDone[n]) progress.hwDone[n] = remote.hwDone[n]; else delete progress.hwDone[n];
+        progress.hwAt[n] = r;
+      } else if (l > r) syncHomework(n);
+    });
+    if (isStaff()){
+      const boards = await C.loadBoards();
+      Object.keys(boards).forEach(k => { if (!progress.boards[k] || (boards[k].at || 0) > (progress.boards[k].at || 0)) progress.boards[k] = boards[k]; });
+    }
+    saveProgress();
+  }catch(e){ console.warn("cloud load", e); }
+}
 
 /* ---------------- i18n ---------------- */
 const T = {
@@ -60,7 +108,16 @@ const T = {
   open:["Ochish","Open"], download:["Yuklab olish","Download"], loading:["Yuklanmoqda…","Loading…"],
   pdfError:["Slaydni yuklab boʻlmadi. Saytni oddiy server orqali oching (README ga qarang).","Could not load the slides. Open the site through a local server (see README)."],
   lessonsWord:["darslar","lessons"], coursePlan:["Kurs rejasi","Course plan"], cleared:["Tozalandi","Cleared"],
-  saved:["Saqlandi","Saved"], theme:["Mavzu","Theme"]
+  saved:["Saqlandi","Saved"], theme:["Mavzu","Theme"],
+  students:["Oʻquvchilar","Students"], signOut:["Chiqish","Sign out"], answersOf:["Kimning javoblari:","Answers of:"],
+  mine:["Meniki (oʻqituvchi)","Mine (teacher)"], noStudents:["Hali oʻquvchilar yoʻq. Oʻquvchilar saytda roʻyxatdan oʻtgach, shu yerda paydo boʻladi.","No students yet. They appear here once they sign up on the site."],
+  viewingStudent:["Oʻquvchi javoblari koʻrsatilmoqda (faqat koʻrish). Yangi javob yozsa, shu yerda darhol yangilanadi.","Showing this student's answers (read-only). It updates live as they type."],
+  notStarted:["Boshlanmagan","Not started"], inProgress:["Bajarilmoqda","In progress"], filled:["toʻldirilgan","filled"],
+  lastActive:["Oxirgi faollik","Last active"], hwOverview:["Uy vazifalari holati","Homework status"], pending:["Kutilmoqda","Pending"],
+  textTool:["Matn qoʻshish","Add text"], clearSlide:["Slaydni tozalash","Clear slide"],
+  editHint:["Boʻsh joylarga bosing va javob yozing. «Matn qoʻshish» bilan slaydning istalgan joyiga yozing.","Click a blank to type the answer. Use “Add text” to write anywhere on the slide."],
+  clickToPlace:["Slaydda matn qoʻyiladigan joyni bosing","Click on the slide where the text should go"],
+  studentAccount:["Oʻquvchi","Student"], refresh:["Yangilash","Refresh"]
 };
 const t = k => (T[k] ? T[k][settings.lang === "en" ? 1 : 0] : k);
 
@@ -118,16 +175,22 @@ function toast(msg){
 /* ---------------- header ---------------- */
 const NAV = [["#/", "home", "home"], ["#/lessons", "lessons", "board"], ["#/homeworks", "homeworks", "pencil"], ["#/answers", "answers", "key"], ["#/materials", "materials", "folder"]];
 function renderChrome(route){
-  $nav.innerHTML = NAV.map(([h, k, ic]) => {
+  const nav = isStaff() ? NAV.slice(0, 3).concat([["#/students", "students", "user"]], NAV.slice(3)) : NAV.filter(n => n[1] !== "answers");
+  $nav.innerHTML = nav.map(([h, k, ic]) => {
     const active = (h === "#/" ? route === "" : route.startsWith(h.slice(2))) ||
-      (k === "lessons" && route.startsWith("u/")) || (k === "homeworks" && route.startsWith("hw/"));
+      (k === "lessons" && route.startsWith("u/")) || (k === "homeworks" && route.startsWith("hw/")) || (k === "students" && route.startsWith("student/"));
     return `<a class="navbtn${active ? " active" : ""}" href="${h}" style="text-decoration:none"><span class="nav-icon">${I(ic)}</span><span>${t(k)}</span></a>`;
   }).join("");
+  const me = Cloud() && Cloud().profile;
   $actions.innerHTML = `
-    <button class="mode-toggle${settings.teacher ? " on" : ""}" id="modeBtn" title="${t("teacher")} / ${t("student")}">${I(settings.teacher ? "board" : "user", 16)}${settings.teacher ? t("teacher") : t("student")}</button>
+    ${isStaff() ? `<button class="mode-toggle${settings.teacher ? " on" : ""}" id="modeBtn" title="${t("teacher")} / ${t("student")}">${I(settings.teacher ? "board" : "user", 16)}${settings.teacher ? t("teacher") : t("student")}</button>` : ""}
+    ${me ? `<button class="mode-toggle" id="signOutBtn" title="${t("signOut")}">${I("user", 16)}<span class="who">${esc((me.name || me.email || "").split(" ")[0])}</span><span>· ${t("signOut")}</span></button>` : ""}
     <div class="lang-switch"><button data-lang="uz" class="${settings.lang === "uz" ? "active" : ""}">UZ</button><button data-lang="en" class="${settings.lang === "en" ? "active" : ""}">EN</button></div>
     <button class="mode-toggle" id="themeBtn" title="${t("theme")}" aria-label="${t("theme")}">${I("moon", 16)}</button>`;
-  document.getElementById("modeBtn").onclick = () => { settings.teacher = !settings.teacher; saveSettings(); route_(); };
+  const mb = document.getElementById("modeBtn");
+  if (mb) mb.onclick = () => { settings.teacher = !settings.teacher; saveSettings(); route_(); };
+  const so = document.getElementById("signOutBtn");
+  if (so) so.onclick = () => Cloud().signOut();
   $actions.querySelectorAll("[data-lang]").forEach(b => b.onclick = () => { settings.lang = b.dataset.lang; saveSettings(); document.documentElement.lang = settings.lang; route_(); });
   document.getElementById("themeBtn").onclick = () => {
     const cur = document.documentElement.getAttribute("data-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
@@ -294,60 +357,155 @@ function viewHomeworks(){
   };
 }
 
-function viewHomework(n){
+let hwWatch = null, studentsCache = null;
+async function getStudents(force){
+  if (!isStaff()) return [];
+  if (!studentsCache || force) studentsCache = await Cloud().listStudents();
+  return studentsCache;
+}
+function stopHwWatch(){ if (hwWatch){ hwWatch(); hwWatch = null; } }
+
+function viewHomework(n, query){
   const h = hwByNum(n);
   if (!h) return notFound();
+  const sel = isStaff() ? (new URLSearchParams(query || "").get("s") || "") : "";
   const u = unitByKey("lesson-" + n), ans = D.answerKey.lessons[n];
   const prevH = hwByNum(n - 1), nextH = hwByNum(n + 1);
+  const qs = sel ? "?s=" + encodeURIComponent(sel) : "";
   $app.innerHTML = `
   <nav class="crumbs"><a href="#/homeworks">${t("homeworks")}</a><span>›</span><span>${esc(h.title)}</span></nav>
+  ${isStaff() ? `<section class="panel student-picker no-print">
+      <label for="stuSel"><b>${t("answersOf")}</b></label>
+      <select id="stuSel" class="search-input" style="margin:0"><option value="">${t("mine")}</option></select>
+      <span class="chip" id="stuState" hidden></span>
+    </section>` : ""}
   <div class="toolbar">
     ${u ? `<a class="btn btn-sm" href="#/u/${keyOf(u)}">${I("board", 16)}${t("openLesson")} ${n}</a>` : ""}
-    <button class="btn btn-sm${progress.hwDone[n] ? " btn-accent" : ""}" id="hwDoneBtn">${I("check", 16)}${progress.hwDone[n] ? (settings.teacher ? t("checked") : t("done")) + " ✓" : t("markDone")}</button>
+    ${sel ? "" : `<button class="btn btn-sm${progress.hwDone[n] ? " btn-accent" : ""}" id="hwDoneBtn">${I("check", 16)}${progress.hwDone[n] ? t("done") + " ✓" : t("markDone")}</button>`}
     <span class="spacer"></span>
     <button class="btn btn-sm" id="hwPrint">${I("print", 16)}${t("print")}</button>
     <a class="btn btn-sm" href="${href(h.docx)}" download>${I("download", 16)}DOCX</a>
     <a class="btn btn-sm" href="${href(h.pdf)}" target="_blank" rel="noopener">${I("file", 16)}PDF</a>
-    <button class="btn btn-sm btn-ghost" id="hwClear">${t("clear")}</button>
+    ${sel ? "" : `<button class="btn btn-sm btn-ghost" id="hwClear">${t("clear")}</button>`}
   </div>
-  <article class="hw-sheet" id="hwSheet">${h.html}</article>
+  ${sel ? `<p class="panel-sub no-print">${t("viewingStudent")}</p>` : `<p class="panel-sub no-print">${t("hwNote")}</p>`}
+  <article class="hw-sheet${sel ? " readonly" : ""}" id="hwSheet">${h.html}</article>
   ${ans ? (settings.teacher ? `<section class="panel answer-panel">
       <div class="panel-head"><p class="eyebrow">${t("answerKeyFor")}</p><h2>${esc(ans.title)}</h2><p class="panel-sub">${esc(D.answerKey.intro)}</p></div>
       <ol>${ans.items.map(i => `<li>${esc(i)}</li>`).join("")}</ol></section>`
-    : `<section class="panel locked-note no-print">${I("key", 22)}<span>${t("teacherOnly")}</span></section>`) : ""}
+    : (isStaff() ? `<section class="panel locked-note no-print">${I("key", 22)}<span>${t("teacherOnly")}</span></section>` : "")) : ""}
   <div class="toolbar no-print">
-    ${prevH ? `<a class="btn" href="#/hw/${prevH.num}">${I("left", 18)}${t("homework")} ${prevH.num}</a>` : ""}
+    ${prevH ? `<a class="btn" href="#/hw/${prevH.num}${qs}">${I("left", 18)}${t("homework")} ${prevH.num}</a>` : ""}
     <span class="spacer"></span>
-    ${nextH ? `<a class="btn" href="#/hw/${nextH.num}">${t("homework")} ${nextH.num}${I("right", 18)}</a>` : ""}
+    ${nextH ? `<a class="btn" href="#/hw/${nextH.num}${qs}">${t("homework")} ${nextH.num}${I("right", 18)}</a>` : ""}
   </div>`;
   const sheet = document.getElementById("hwSheet");
   const inputs = [...sheet.querySelectorAll("input.blank")], checks = [...sheet.querySelectorAll(".hw-check input")];
-  const saved = progress.hwInputs[n] || [], savedC = progress.hwChecks[n] || [];
-  inputs.forEach((el, i) => {
-    el.value = saved[i] || "";
-    el.addEventListener("input", () => { (progress.hwInputs[n] = progress.hwInputs[n] || [])[i] = el.value; saveProgress(); });
-  });
-  checks.forEach((el, i) => {
-    el.checked = !!savedC[i];
-    el.addEventListener("change", () => { (progress.hwChecks[n] = progress.hwChecks[n] || [])[i] = el.checked; saveProgress(); });
-  });
-  document.getElementById("hwDoneBtn").onclick = () => {
-    if (progress.hwDone[n]) delete progress.hwDone[n]; else progress.hwDone[n] = Date.now();
-    saveProgress(); viewHomework(n);
+  const fill = (vals, cvals) => {
+    inputs.forEach((el, i) => { el.value = (vals || [])[i] || ""; });
+    checks.forEach((el, i) => { el.checked = !!(cvals || [])[i]; });
   };
   document.getElementById("hwPrint").onclick = () => window.print();
-  document.getElementById("hwClear").onclick = () => {
-    delete progress.hwInputs[n]; delete progress.hwChecks[n]; saveProgress();
-    inputs.forEach(el => el.value = ""); checks.forEach(el => el.checked = false); toast(t("cleared"));
+
+  if (isStaff()){
+    const ss = document.getElementById("stuSel");
+    getStudents().then(list => {
+      list.forEach(s => {
+        const o = document.createElement("option"); o.value = s.uid;
+        const f = (s.sp1.hwInputs[n] || []).filter(x => x).length;
+        o.textContent = (s.name || s.email) + (s.sp1.hwDone[n] ? " ✓" : f ? ` (${f})` : "");
+        ss.appendChild(o);
+      });
+      ss.value = sel;
+    }).catch(e => console.warn(e));
+    ss.onchange = () => { location.hash = "#/hw/" + n + (ss.value ? "?s=" + encodeURIComponent(ss.value) : ""); };
+  }
+  if (sel){
+    inputs.forEach(el => el.readOnly = true); checks.forEach(el => el.disabled = true);
+    const st = document.getElementById("stuState");
+    hwWatch = Cloud().watchStudent(sel, p => {
+      fill(p.hwInputs[n], p.hwChecks[n]);
+      const f = (p.hwInputs[n] || []).filter(x => x).length;
+      st.hidden = false;
+      st.className = "chip" + (p.hwDone[n] ? " ok" : f ? " accent" : "");
+      st.textContent = p.hwDone[n] ? t("done") : f ? `${t("inProgress")} · ${f}/${inputs.length} ${t("filled")}` : t("notStarted");
+    });
+    return;
+  }
+  fill(progress.hwInputs[n], progress.hwChecks[n]);
+  inputs.forEach((el, i) => el.addEventListener("input", () => {
+    const a = progress.hwInputs[n] = Array.from({ length:inputs.length }, (_, j) => (progress.hwInputs[n] || [])[j] || "");
+    a[i] = el.value; syncHomework(n);
+  }));
+  checks.forEach((el, i) => el.addEventListener("change", () => {
+    const a = progress.hwChecks[n] = Array.from({ length:checks.length }, (_, j) => !!(progress.hwChecks[n] || [])[j]);
+    a[i] = el.checked; syncHomework(n);
+  }));
+  document.getElementById("hwDoneBtn").onclick = () => {
+    if (progress.hwDone[n]) delete progress.hwDone[n]; else progress.hwDone[n] = Date.now();
+    syncHomework(n); viewHomework(n, query);
   };
+  document.getElementById("hwClear").onclick = () => {
+    delete progress.hwInputs[n]; delete progress.hwChecks[n]; syncHomework(n);
+    fill([], []); toast(t("cleared"));
+  };
+}
+
+function fmtAgo(ts){
+  if (!ts || typeof ts !== "number") return "—";
+  const m = Math.round((Date.now() - ts) / 60000);
+  if (m < 1) return settings.lang === "en" ? "just now" : "hozirgina";
+  if (m < 60) return m + (settings.lang === "en" ? " min ago" : " daqiqa oldin");
+  const h = Math.round(m / 60); if (h < 48) return h + (settings.lang === "en" ? " h ago" : " soat oldin");
+  return new Date(ts).toLocaleDateString();
+}
+async function viewStudents(force){
+  if (!isStaff()) return notFound();
+  $app.innerHTML = `<div class="section-title"><div><h1>${t("students")}</h1><p>${t("hwOverview")}</p></div>
+    <button class="btn btn-sm" id="stuRefresh">${t("refresh")}</button></div><section class="panel"><p class="panel-sub">${t("loading")}</p></section>`;
+  document.getElementById("stuRefresh").onclick = () => viewStudents(true);
+  let list;
+  try{ list = await getStudents(force); }catch(e){ $app.querySelector(".panel").innerHTML = `<p>${esc(e.message)}</p>`; return; }
+  if (!location.hash.startsWith("#/students")) return;
+  $app.querySelector(".panel").outerHTML = list.length ? `<div class="unit-list">${list.map(s => {
+    const done = Object.keys(s.sp1.hwDone).length, started = Object.keys(s.sp1.hwInputs).filter(k => (s.sp1.hwInputs[k] || []).some(x => x)).length;
+    return `<a class="unit-row" href="#/student/${s.uid}" style="text-decoration:none">
+      <span class="unit-badge"><small>${s.status === "approved" ? "" : t("pending").toUpperCase()}</small><b>${esc((s.name || s.email || "?").trim()[0] || "?").toUpperCase()}</b></span>
+      <span class="unit-main"><h3>${esc(s.name || s.email)}</h3><p class="unit-meta">${esc(s.email || "")} · ${t("lastActive")}: ${fmtAgo(s.sp1.updatedAt || s.lastActive)}</p></span>
+      <span class="unit-side"><span class="chip ok">${done}/30 ${t("done")}</span>${started > done ? `<span class="chip accent">${started - done} ${t("inProgress").toLowerCase()}</span>` : ""}</span></a>`;
+  }).join("")}</div>` : `<section class="panel"><p>${t("noStudents")}</p></section>`;
+}
+async function viewStudent(uid){
+  if (!isStaff()) return notFound();
+  $app.innerHTML = `<section class="panel"><p class="panel-sub">${t("loading")}</p></section>`;
+  const list = await getStudents();
+  const s = list.find(x => x.uid === uid);
+  if (!s) return notFound();
+  const draw = p => {
+    if (!location.hash.startsWith("#/student/")) return;
+    $app.innerHTML = `
+    <nav class="crumbs"><a href="#/students">${t("students")}</a><span>›</span><span>${esc(s.name || s.email)}</span></nav>
+    <div class="section-title"><div><h1>${esc(s.name || s.email)}</h1><p>${esc(s.email || "")} · ${t("lastActive")}: ${fmtAgo(p.updatedAt || s.lastActive)}</p></div></div>
+    ${D.parts.map(pt => `<section class="part-panel"><div class="part-head"><div><p class="eyebrow">${partName(pt.num).toUpperCase()}</p></div></div>
+      <div class="unit-list">${lessons.filter(u => u.part === pt.num).map(u => {
+        const h = hwByNum(u.num); if (!h) return "";
+        const f = (p.hwInputs[h.num] || []).filter(x => x).length, done = !!p.hwDone[h.num];
+        return `<a class="unit-row hw-list-row${done ? " done" : ""}" href="#/hw/${h.num}?s=${encodeURIComponent(uid)}" style="text-decoration:none">
+          <span class="unit-badge"><small>UY</small><b>${done ? I("check", 22) : h.num}</b></span>
+          <span class="unit-main"><h3>${esc(h.title)}</h3><p class="unit-meta">${esc(h.subtitle)}</p></span>
+          <span class="unit-side"><span class="chip${done ? " ok" : f ? " accent" : ""}">${done ? t("done") : f ? f + " " + t("filled") : t("notStarted")}</span>${p.hwAt[h.num] ? `<span class="chip">${fmtAgo(p.hwAt[h.num])}</span>` : ""}</span></a>`;
+      }).join("")}</div></section>`).join("")}`;
+  };
+  stopHwWatch();
+  hwWatch = Cloud().watchStudent(uid, draw);
 }
 
 function viewAnswers(){
   const ak = D.answerKey;
   if (!settings.teacher){
     $app.innerHTML = `<div class="section-title"><div><h1>${t("answers")}</h1></div></div>
-      <section class="panel locked-note">${I("key", 22)}<span style="flex:1">${t("teacherOnly")}</span><button class="btn btn-accent btn-sm" id="toTeacher">${t("switchTeacher")}</button></section>`;
-    document.getElementById("toTeacher").onclick = () => { settings.teacher = true; saveSettings(); route_(); };
+      <section class="panel locked-note">${I("key", 22)}<span style="flex:1">${t("teacherOnly")}</span>${isStaff() ? `<button class="btn btn-accent btn-sm" id="toTeacher">${t("switchTeacher")}</button>` : ""}</section>`;
+    if (isStaff()) document.getElementById("toTeacher").onclick = () => { settings.teacher = true; saveSettings(); route_(); };
     return;
   }
   $app.innerHTML = `
@@ -402,6 +560,7 @@ async function renderPage(src, pageNum, canvas, cssW, cssH){
   canvas.width = Math.floor(vp.width); canvas.height = Math.floor(vp.height);
   canvas.style.width = Math.floor(vp.width / dpr) + "px"; canvas.style.height = Math.floor(vp.height / dpr) + "px";
   const task = page.render({ canvasContext:canvas.getContext("2d"), viewport:vp });
+  task.sp1 = { page, scale };
   return task;
 }
 
@@ -439,7 +598,7 @@ function openPresenter(k, startIdx){
         <button class="pr-btn" id="prFull" title="${t("fullscreen")} (F)">${I("max", 18)}<span class="lbl">${t("fullscreen")}</span></button>
         <button class="pr-btn" id="prClose" title="${t("close")} (Esc)">${I("x", 18)}</button></div>
     </div>
-    <div class="pr-stage" id="prStage"><span class="pr-loading" id="prLoading">${t("loading")}</span><canvas id="prCanvas"></canvas><div class="pr-progress"><span id="prBar"></span></div></div>
+    <div class="pr-stage" id="prStage"><span class="pr-loading" id="prLoading">${t("loading")}</span><canvas id="prCanvas"></canvas><div class="pr-layer" id="prLayer"></div><div class="pr-progress"><span id="prBar"></span></div></div>
     <aside class="pr-side" id="prSide" hidden>${u.slides.map((s, i) => `<button data-i="${i}"><small>${i + 1} · ${esc(s.label)}</small>${esc(s.title || s.label)}</button>`).join("")}</aside>
     <div class="pr-bottom">
       <div class="pr-group">
@@ -448,12 +607,72 @@ function openPresenter(k, startIdx){
         <button class="pr-btn primary" id="prNext"><span class="lbl">${t("next")}</span>${I("right", 18)}</button>
       </div>
       <div class="pr-group">
+        <button class="pr-btn" id="prText" title="${t("textTool")} (T)">${I("pencil", 18)}<span class="lbl">${t("textTool")}</span></button>
+        <button class="pr-btn" id="prClear" title="${t("clearSlide")}">${I("x", 18)}<span class="lbl">${t("clearSlide")}</span></button>
         <button class="pr-btn${settings.skipAnswers ? " on" : ""}" id="prSkip" title="${t("hideAnswers")}">${I("skip", 18)}<span class="lbl">${t("hideAnswers")}</span></button>
       </div>
     </div>
   </div>`;
   const el = id => document.getElementById(id);
-  const canvas = el("prCanvas"), stage = el("prStage");
+  const canvas = el("prCanvas"), stage = el("prStage"), layer = el("prLayer");
+  let textMode = false;
+  const board = () => (progress.boards[k] = progress.boards[k] || { s:{} });
+  const slideBoard = (create) => { const b = board(); if (!b.s[cur] && create) b.s[cur] = { b:{}, t:[] }; return b.s[cur]; };
+  const touch = () => { board().at = Date.now(); syncBoard(k); };
+  function buildLayer(page, scale){
+    const cw = parseFloat(canvas.style.width), ch = parseFloat(canvas.style.height);
+    Object.assign(layer.style, { left:canvas.offsetLeft + "px", top:canvas.offsetTop + "px", width:cw + "px", height:ch + "px" });
+    layer.innerHTML = "";
+    layer.classList.toggle("texting", textMode);
+    const sb = slideBoard(false) || { b:{}, t:[] };
+    const vp = page.getViewport({ scale });
+    const slideAt = cur;
+    page.getTextContent().then(tc => {
+      if (slideAt !== cur) return;
+      let bi = 0;
+      tc.items.forEach(it => {
+        const str = it.str || ""; if (!/_{3,}/.test(str)) return;
+        const pt = vp.convertToViewportPoint(it.transform[4], it.transform[5]);
+        const fh = Math.hypot(it.transform[2], it.transform[3]) * scale;
+        const cwid = (it.width * scale) / Math.max(1, str.length);
+        const re = /_{3,}/g; let m;
+        while ((m = re.exec(str))){
+          const i = bi++, inp = document.createElement("input");
+          inp.className = "pr-blank"; inp.autocomplete = "off"; inp.spellcheck = false;
+          const w = Math.max(m[0].length * cwid, fh * 2.2);
+          Object.assign(inp.style, { left:(pt[0] + m.index * cwid) + "px", top:(pt[1] - fh * 1.05) + "px", width:w + "px", height:(fh * 1.3) + "px", fontSize:(fh * 0.92) + "px" });
+          inp.value = (sb.b && sb.b[i]) || "";
+          inp.classList.toggle("has", !!inp.value);
+          inp.addEventListener("input", () => { const s2 = slideBoard(true); if (inp.value) s2.b[i] = inp.value; else delete s2.b[i]; inp.classList.toggle("has", !!inp.value); touch(); });
+          inp.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === "Tab"){ e.preventDefault(); const all = [...layer.querySelectorAll(".pr-blank")]; const nx = all[all.indexOf(inp) + (e.shiftKey ? -1 : 1)]; if (nx) nx.focus(); else inp.blur(); } if (e.key === "Escape") inp.blur(); });
+          layer.appendChild(inp);
+        }
+      });
+    }).catch(() => {});
+    (sb.t || []).forEach((n, i) => addNote(n, i));
+  }
+  function addNote(n, i){
+    const d = document.createElement("div");
+    d.className = "pr-note"; d.contentEditable = "true"; d.spellcheck = false; d.textContent = n.v || "";
+    const ch = parseFloat(layer.style.height);
+    Object.assign(d.style, { left:(n.x * 100) + "%", top:(n.y * 100) + "%", fontSize:(ch * 0.045) + "px" });
+    d.addEventListener("input", () => { const s2 = slideBoard(true); s2.t[i] = { x:n.x, y:n.y, v:d.textContent }; touch(); });
+    d.addEventListener("blur", () => { if (!d.textContent.trim()){ const s2 = slideBoard(true); s2.t[i] = null; s2.t = s2.t.filter(Boolean); touch(); rebuild(); } });
+    d.addEventListener("keydown", e => { if (e.key === "Escape") d.blur(); });
+    layer.appendChild(d);
+    return d;
+  }
+  let lastLayer = null;
+  const rebuild = () => { if (lastLayer) buildLayer(lastLayer.page, lastLayer.scale); };
+  layer.addEventListener("click", e => {
+    if (!textMode || e.target !== layer) return;
+    const r = layer.getBoundingClientRect();
+    const s2 = slideBoard(true);
+    const n = { x:(e.clientX - r.left) / r.width, y:(e.clientY - r.top) / r.height - 0.02, v:"" };
+    s2.t.push(n);
+    const d = addNote(n, s2.t.length - 1); d.focus();
+    textMode = false; el("prText").classList.remove("on"); layer.classList.remove("texting");
+  });
   const isAnswer = i => /JAVOBLAR/i.test(u.slides[i].label);
   const visible = i => !(settings.skipAnswers && isAnswer(i));
   let cur = -1, task = null, ended = false;
@@ -467,7 +686,8 @@ function openPresenter(k, startIdx){
     if (task){ try{ task.cancel(); }catch(e){} task = null; }
     const s = u.slides[cur];
     const w = stage.clientWidth - 24, h = stage.clientHeight - 24;
-    renderPage(u.pdf, cur + 1, canvas, w, h).then(tk => { task = tk; return tk.promise; }).then(() => { task = null; const l = document.getElementById("prLoading"); if (l) l.remove(); })
+    layer.innerHTML = "";
+    renderPage(u.pdf, cur + 1, canvas, w, h).then(tk => { task = tk; lastLayer = tk.sp1; return tk.promise; }).then(() => { task = null; const l = document.getElementById("prLoading"); if (l) l.remove(); rebuild(); })
       .catch(e => { if (e && e.name === "RenderingCancelledException") return; showError(); });
   }
   function showError(){
@@ -520,22 +740,24 @@ function openPresenter(k, startIdx){
     if (document.fullscreenElement) document.exitFullscreen?.(); else pr.requestFullscreen?.().catch(() => {});
   }
   function onKey(e){
-    if (e.target.closest && e.target.closest("input,textarea")) return;
+    if (e.target.closest && e.target.closest("input,textarea,[contenteditable]")) return;
     if (["ArrowRight", "PageDown", " ", "Enter"].includes(e.key)){ e.preventDefault(); step(1); }
     else if (["ArrowLeft", "PageUp", "Backspace"].includes(e.key)){ e.preventDefault(); step(-1); }
     else if (e.key === "Home"){ go(0, true); }
     else if (e.key === "End"){ go(u.slides.length - 1, true); }
     else if (e.key === "f" || e.key === "F"){ fullscreen(); }
     else if (e.key === "o" || e.key === "O"){ el("prOutline").click(); }
+    else if (e.key === "t" || e.key === "T"){ el("prText").click(); }
     else if (e.key === "Escape" && !document.fullscreenElement){ closePresenter(); }
   }
   let tx = null;
-  stage.addEventListener("touchstart", e => { tx = e.touches[0].clientX; }, { passive:true });
+  stage.addEventListener("touchstart", e => { tx = e.target.closest(".pr-blank,.pr-note") ? null : e.touches[0].clientX; }, { passive:true });
   stage.addEventListener("touchend", e => {
     if (tx == null) return; const dx = e.changedTouches[0].clientX - tx; tx = null;
     if (Math.abs(dx) > 40) step(dx < 0 ? 1 : -1);
   });
-  canvas.addEventListener("click", e => { const r = canvas.getBoundingClientRect(); step(e.clientX - r.left < r.width * 0.3 ? -1 : 1); });
+  el("prText").onclick = () => { textMode = !textMode; el("prText").classList.toggle("on", textMode); layer.classList.toggle("texting", textMode); if (textMode) toast(t("clickToPlace")); };
+  el("prClear").onclick = () => { const b = board(); delete b.s[cur]; touch(); rebuild(); };
   el("prPrev").onclick = () => step(-1);
   el("prNext").onclick = () => step(1);
   el("prClose").onclick = () => closePresenter();
@@ -570,18 +792,27 @@ function route_(){
     return;
   }
   closePresenter(true);
+  stopHwWatch();
   renderChrome(path);
   if (!path) viewHome();
   else if (parts[0] === "lessons") viewLessons(query || "");
   else if (parts[0] === "u") viewUnit(parts[1]);
   else if (parts[0] === "homeworks") viewHomeworks();
-  else if (parts[0] === "hw") viewHomework(+parts[1]);
+  else if (parts[0] === "hw") viewHomework(+parts[1], query || "");
+  else if (parts[0] === "students") viewStudents();
+  else if (parts[0] === "student") viewStudent(parts[1]);
   else if (parts[0] === "answers") viewAnswers();
   else if (parts[0] === "materials") viewMaterials();
   else notFound();
   window.scrollTo(0, 0);
 }
 document.documentElement.lang = settings.lang;
-window.addEventListener("hashchange", route_);
-route_();
+let booted = false;
+async function boot(){
+  await initUser();
+  if (!booted){ booted = true; window.addEventListener("hashchange", route_); }
+  route_();
+}
+window.SP1_refresh = () => { if (!isStaff()) settings.teacher = false; studentsCache = null; route_(); };
+if (window.SP1Cloud && window.SP1Cloud.user) boot(); else window.addEventListener("sp1:auth", boot);
 })();

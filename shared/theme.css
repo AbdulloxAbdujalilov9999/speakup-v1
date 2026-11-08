@@ -1,0 +1,98 @@
+/* Shared auth-gate UI — used by both index.html and admin/index.html.
+ * Reads --surface/--surface-2/--ink/--muted/--line/--accent/--accent-ink/
+ * --accent-2/--danger/--shadow/--radius-s/--radius-m/--font-body/--font-mono
+ * custom properties, which each host page defines itself in its own
+ * inline <style> (so this file carries no design tokens of its own,
+ * nothing to fall out of sync). */
+
+.auth-screen{
+  min-height:100vh; min-height:100dvh;
+  display:flex; align-items:center; justify-content:center;
+  padding:24px; background:var(--surface-2);
+}
+.auth-card{
+  width:100%; max-width:420px; background:var(--surface);
+  border:1px solid var(--line); border-radius:var(--radius-m);
+  padding:32px; box-shadow:var(--shadow); box-sizing:border-box;
+}
+.auth-brand{
+  font-family:var(--font-display,var(--font-body)); font-weight:700;
+  letter-spacing:0.05em; font-size:1.15rem; display:flex; align-items:center; gap:10px; margin-bottom:20px;
+}
+.auth-brand::before{
+  content:""; width:34px; height:34px; border-radius:10px; flex-shrink:0;
+  background:url("../icons/icon-192.png") center/cover;
+}
+.auth-title{ font-size:1.35rem; margin:0 0 6px; }
+.auth-sub{ color:var(--muted); font-size:0.9rem; margin:0 0 20px; line-height:1.5; }
+.auth-error{
+  background:var(--danger); color:#fff; padding:10px 12px;
+  border-radius:var(--radius-s); font-size:0.85rem; margin-bottom:16px;
+}
+.auth-notice{
+  background:var(--surface-2); border:1px solid var(--line); color:var(--ink);
+  padding:10px 12px; border-radius:var(--radius-s); font-size:0.85rem; margin-bottom:16px;
+}
+
+.auth-providers{ display:flex; flex-direction:column; gap:10px; margin-bottom:18px; }
+.auth-btn-provider{
+  display:flex; align-items:center; justify-content:center; gap:10px;
+  width:100%; min-height:46px; border-radius:var(--radius-s); border:1px solid var(--line);
+  background:var(--surface); color:var(--ink); font-family:var(--font-body);
+  font-size:0.92rem; font-weight:600; cursor:pointer;
+}
+.auth-btn-provider:hover{ background:var(--surface-2); }
+.auth-btn-provider svg{ width:18px; height:18px; flex-shrink:0; }
+
+.auth-divider{
+  display:flex; align-items:center; gap:10px; color:var(--muted);
+  font-size:0.76rem; text-transform:uppercase; letter-spacing:0.05em; margin:2px 0 16px;
+}
+.auth-divider::before, .auth-divider::after{ content:""; flex:1; height:1px; background:var(--line); }
+
+.auth-form{ display:flex; flex-direction:column; gap:4px; }
+.auth-label{
+  font-size:0.76rem; color:var(--muted); margin:10px 0 3px;
+  text-transform:uppercase; letter-spacing:0.03em;
+}
+.auth-input{
+  width:100%; padding:11px 12px; min-height:44px; border-radius:var(--radius-s);
+  border:1px solid var(--line); background:var(--surface-2); color:var(--ink);
+  font-family:var(--font-body); font-size:0.95rem; box-sizing:border-box;
+}
+.auth-input:focus{ outline:2px solid var(--accent); outline-offset:1px; }
+
+.auth-links{ display:flex; flex-direction:column; gap:8px; margin-top:16px; align-items:flex-start; }
+.auth-link-btn{
+  background:none; border:none; color:var(--accent); font-size:0.85rem;
+  padding:4px 0; text-decoration:underline; cursor:pointer; font-family:var(--font-body);
+}
+
+.auth-status-icon{ margin-bottom:10px; color:var(--accent); }
+.auth-role-pill{
+  display:inline-flex; align-items:center; gap:6px; font-family:var(--font-mono);
+  font-size:0.7rem; text-transform:uppercase; letter-spacing:0.05em;
+  background:var(--accent); color:var(--accent-ink); padding:3px 9px;
+  border-radius:99px; margin-bottom:14px;
+}
+
+/* Realtime pending-request / unread badge (nav items, etc.) */
+.ttx-badge{
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:18px; height:18px; padding:0 5px; border-radius:99px;
+  background:var(--danger); color:#fff; font-family:var(--font-mono);
+  font-size:0.68rem; font-weight:700; line-height:18px;
+}
+
+/* Language switch (EN | UZ | RU) — used in the app header, the gate cards and Settings */
+.lang-switch{
+  display:inline-flex; gap:2px; padding:3px; border-radius:99px;
+  background:var(--surface-2); border:1px solid var(--line);
+}
+.lang-switch button{
+  border:none; background:none; color:var(--muted); cursor:pointer;
+  font-family:var(--font-mono,monospace); font-size:0.74rem; font-weight:600; letter-spacing:0.04em;
+  min-width:38px; min-height:32px; padding:0 8px; border-radius:99px;
+}
+.lang-switch button.active{ background:var(--accent); color:var(--accent-ink); }
+.auth-lang{ display:flex; justify-content:flex-end; margin:-12px -12px 6px 0; }

@@ -18,7 +18,9 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="shared/tokens.css">
 <link rel="stylesheet" href="shared/course.css">
+<link rel="stylesheet" href="shared/theme.css">
 <link rel="stylesheet" href="shared/sp1.css">
+<link rel="stylesheet" href="shared/sp1-v2.css">
 <script>
   try{
     var t = (JSON.parse(localStorage.getItem("sp1_settings")||"{}")||{}).theme;
@@ -27,6 +29,8 @@
 </script>
 </head>
 <body>
+<div id="authRoot"></div>
+<div id="appShell" hidden>
 <header class="topbar">
   <div class="topbar-inner">
     <a class="brand" href="#/" style="text-decoration:none">
@@ -42,11 +46,13 @@
 </header>
 
 <main id="app"></main>
+</div>
 <div id="toast"></div>
 <div id="presenterRoot"></div>
 
 <script src="vendor/pdf.min.js"></script>
 <script src="data/content.js"></script>
 <script src="app.js"></script>
+<script type="module" src="shared/sp1-cloud.js"></script>
 </body>
 </html>

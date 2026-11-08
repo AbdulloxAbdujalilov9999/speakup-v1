@@ -1,0 +1,23 @@
+/* v2: editable slides, accounts, student answers */
+.pr-layer{ position:absolute; z-index:1; }
+.pr-layer.texting{ cursor:crosshair; outline:2px dashed rgba(255,107,74,0.7); outline-offset:2px; }
+.pr-blank{
+  position:absolute; box-sizing:border-box; border:none; border-bottom:2px dashed #FF6B4A; border-radius:4px 4px 0 0;
+  background:rgba(255,214,102,0.28); color:#2E2364; font-family:var(--font-body); font-weight:700; padding:0 4px; margin:0;
+  cursor:text; transition:background .15s;
+}
+.pr-blank:hover{ background:rgba(255,214,102,0.5); }
+.pr-blank:focus{ outline:2px solid #5416B5; background:#fff; }
+.pr-blank.has{ background:rgba(255,255,255,0.92); border-bottom:2px solid #1FB5A6; color:#127A70; }
+.pr-note{
+  position:absolute; min-width:2em; max-width:60%; padding:2px 8px; border-radius:6px; line-height:1.25;
+  color:#C2410C; font-family:var(--font-body); font-weight:700; background:rgba(255,255,255,0.85);
+  border:2px dashed transparent; outline:none; white-space:pre-wrap; cursor:text;
+}
+.pr-note:focus{ border-color:#FF6B4A; background:#fff; }
+.student-picker{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:14px 18px; }
+.student-picker select{ flex:1; min-width:200px; max-width:420px; min-height:44px; padding:8px 12px; }
+.hw-sheet.readonly input.blank{ background:#EAF7F5; border-bottom-color:#1FB5A6; color:#127A70; font-weight:600; }
+#signOutBtn{ white-space:nowrap; flex-wrap:nowrap; }
+.topbar .who{ max-width:10ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:bottom; }
+@media (max-width:760px){ #signOutBtn .who{ display:none; } }
