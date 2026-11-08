@@ -200,3 +200,4 @@ a.btn, a.pr-btn, .crumbs a{ text-decoration:none; }
 .topbar .lang-switch button{ color:rgba(248,244,252,0.75); }
 .topbar .lang-switch button.active{ background:var(--brand-200); color:var(--brand-900); }
 @media (min-width:1100px){ .topbar-inner{ max-width:1180px; flex-wrap:nowrap; } }
+.pr-loading{ position:absolute; font-family:var(--font-mono); color:var(--brand-200); font-size:0.9rem; }

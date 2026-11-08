@@ -389,7 +389,7 @@ function notFound(){ $app.innerHTML = `<section class="panel"><h2>404</h2><p><a 
 const pdfDocs = {};
 function getPdf(part){
   if (!window.pdfjsLib) return Promise.reject(new Error("pdf.js missing"));
-  if (!pdfDocs[part]) pdfDocs[part] = pdfjsLib.getDocument(href(D.parts[part - 1].pdf)).promise.catch(e => { delete pdfDocs[part]; throw e; });
+  if (!pdfDocs[part]) pdfDocs[part] = pdfjsLib.getDocument({ url:href(D.parts[part - 1].pdf), disableRange:true, disableStream:true, disableAutoFetch:true }).promise.catch(e => { delete pdfDocs[part]; throw e; });
   return pdfDocs[part];
 }
 async function renderPage(part, pageNum, canvas, cssW, cssH){
@@ -439,7 +439,7 @@ function openPresenter(k, startIdx){
         <button class="pr-btn" id="prFull" title="${t("fullscreen")} (F)">${I("max", 18)}<span class="lbl">${t("fullscreen")}</span></button>
         <button class="pr-btn" id="prClose" title="${t("close")} (Esc)">${I("x", 18)}</button></div>
     </div>
-    <div class="pr-stage" id="prStage"><canvas id="prCanvas"></canvas><div class="pr-progress"><span id="prBar"></span></div></div>
+    <div class="pr-stage" id="prStage"><span class="pr-loading" id="prLoading">${t("loading")}</span><canvas id="prCanvas"></canvas><div class="pr-progress"><span id="prBar"></span></div></div>
     <aside class="pr-side" id="prSide" hidden>${u.slides.map((s, i) => `<button data-i="${i}"><small>${i + 1} · ${esc(s.label)}</small>${esc(s.title || s.label)}</button>`).join("")}</aside>
     <div class="pr-bottom">
       <div class="pr-group">
@@ -467,7 +467,7 @@ function openPresenter(k, startIdx){
     if (task){ try{ task.cancel(); }catch(e){} task = null; }
     const s = u.slides[cur];
     const w = stage.clientWidth - 24, h = stage.clientHeight - 24;
-    renderPage(u.part, s.n, canvas, w, h).then(tk => { task = tk; return tk.promise; }).then(() => { task = null; })
+    renderPage(u.part, s.n, canvas, w, h).then(tk => { task = tk; return tk.promise; }).then(() => { task = null; const l = document.getElementById("prLoading"); if (l) l.remove(); })
       .catch(e => { if (e && e.name === "RenderingCancelledException") return; showError(); });
   }
   function showError(){
