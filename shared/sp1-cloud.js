@@ -203,6 +203,12 @@ const Cloud = {
     const v = r ? Object.assign({}, r, { by: this.uid, byName: (this.profile && this.profile.name) || "", at: Date.now() }) : null;
     return set(ref(db, `sp1/reviews/${uid}/${hw}`), v);
   },
+  watchReviewsOf(uid, cb){ return onValue(ref(db, "sp1/reviews/" + uid), s => cb(s.val() || {}), () => cb({})); },
+  // mark a homework as finished (checked) or reopen it, keeping the teacher's corrections
+  async setChecked(uid, hw, on){
+    const cur = (await get(ref(db, `sp1/reviews/${uid}/${hw}`))).val() || { fix:{}, marks:{}, comment:"" };
+    return this.saveReview(uid, hw, Object.assign(cur, { checked: !!on }));
+  },
   doneReset(id){ return remove(ref(db, `sp1/resets/${this.uid}/${id}`)); },
   watchMyAccess(cb){ return onValue(ref(db, "sp1/access/" + this.uid), s => cb(s.val() || {}), () => cb({})); },
   setAccess(uids, key, on){

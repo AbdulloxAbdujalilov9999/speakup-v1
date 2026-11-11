@@ -267,11 +267,13 @@ function drawAccess(el){
 }
 
 /* ---------------- Progress (one student; copied from SpeakUp's admin Progress page) ---------------- */
-let assignView = { uid: null, off: null, list: {} }, resetView = { uid: null, off: null, list: {} };
+let assignView = { uid: null, off: null, list: {} }, resetView = { uid: null, off: null, list: {} }, reviewView = { uid: null, off: null, list: {} };
 function watchFor(uid){
   if (assignView.uid !== uid){
     if (assignView.off) assignView.off();
     if (resetView.off) resetView.off();
+    if (reviewView.off) reviewView.off();
+    reviewView = { uid, list: {}, off: uid ? C().watchReviewsOf(uid, v => { reviewView.list = v; draw(); }) : null };
     assignView = { uid, list: {}, off: uid ? C().watchAssignments(uid, v => { assignView.list = v; draw(); }) : null };
     resetView = { uid, list: {}, off: uid ? C().watchResets(uid, v => { resetView.list = v; draw(); }) : null };
   }
@@ -288,7 +290,8 @@ function drawProgress(el){
   }
   watchFor(uid);
   const p = s.sp1, units = unitsAll(), open = units.filter(u => A().hasFor(s, A().keyOf(u)));
-  const done = Object.keys(p.hwDone).map(Number).sort((a, b) => a - b);
+  const rvl = reviewView.list || {}, isDone = n => !!(p.hwDone[n] || (rvl[n] && rvl[n].checked));
+  const done = [...new Set(Object.keys(p.hwDone).concat(Object.keys(rvl).filter(n => rvl[n] && rvl[n].checked)))].map(Number).sort((a, b) => a - b);
   const started = Object.keys(p.hwInputs).map(Number).filter(n => (p.hwInputs[n] || []).some(x => x)).sort((a, b) => a - b);
   const asg = Object.keys(assignView.list).map(id => Object.assign({ id }, assignView.list[id])).sort((a, b) => (b.at || 0) - (a.at || 0));
   const rs = Object.keys(resetView.list).map(id => Object.assign({ id }, resetView.list[id]));
@@ -302,7 +305,7 @@ function drawProgress(el){
     <section class="panel"><div class="panel-head-row"><div><h2>${L("Berilgan uy vazifalari", "Homework assigned")}</h2>
       <p class="panel-sub">${L("Oʻquvchi ularni bosh sahifasida va «Uy vazifalari»da koʻradi. Vazifa berilganda shu dars ham ochiladi.", "They see these on their home page and under Homeworks. Assigning also opens that lesson for them.")}</p></div>
       <button class="btn btn-accent btn-sm" data-assign="${uid}">+ ${L("Uy vazifasi berish", "Assign homework")}</button></div>
-      ${asg.length ? `<div class="reset-log">${asg.map(a => `<div class="reset-log-row"><span>${esc((A().hwByNum(a.hw) || {}).title || "#" + a.hw)}${a.dueDate ? ` · ${L("muddati", "due")} ${esc(a.dueDate)}` : ""}${a.note ? ` · “${esc(a.note)}”` : ""} ${p.hwDone[a.hw] ? `<span class="user-badge status-approved">${L("bajarildi", "done")}</span>` : ""}</span>
+      ${asg.length ? `<div class="reset-log">${asg.map(a => `<div class="reset-log-row"><span>${esc((A().hwByNum(a.hw) || {}).title || "#" + a.hw)}${a.dueDate ? ` · ${L("muddati", "due")} ${esc(a.dueDate)}` : ""}${a.note ? ` · “${esc(a.note)}”` : ""} ${isDone(a.hw) ? `<span class="user-badge status-approved">${L("bajarildi", "done")}</span>` : ""}</span>
         <span class="panel-sub" style="display:flex;align-items:center;gap:8px">${a.byName ? esc(a.byName) : ""}<button class="btn btn-ghost btn-sm" data-cancel-assign="${a.id}">${L("Bekor qilish", "Cancel")}</button></span></div>`).join("")}</div>` : `<p class="panel-sub">${L("Hali hech narsa berilmagan.", "Nothing assigned yet.")}</p>`}</section>
     <section class="panel"><div class="panel-head"><h2>${L("Darslarni ochish (oraliq)", "Open a range of lessons")}</h2>
       <p class="panel-sub">${L("Shu oʻquvchi uchun bir nechta darsni birdaniga oching yoki yoping.", "Open or close several lessons at once for this student.")}</p></div>
@@ -314,9 +317,9 @@ function drawProgress(el){
       ${rs.length ? `<div class="reset-log"><p class="panel-sub" style="margin:14px 0 6px">${L("Kutilmoqda (oʻquvchi saytni ochganda bajariladi)", "Waiting (applies when the student opens the site)")}</p>${rs.map(r => `<div class="reset-log-row"><span>${esc((A().hwByNum(r.hw) || {}).title || r.hw)}</span><span class="panel-sub">${esc(r.byName || "")}</span></div>`).join("")}</div>` : ""}</section>
     <section class="panel"><div class="panel-head"><h2>${L("Uy vazifalari", "Homework")} (${hwRows.length})</h2></div>
       ${hwRows.length ? `<div class="table-wrap"><table class="admin-table"><thead><tr><th>${L("Uy vazifasi", "Homework")}</th><th>${L("Holati", "Status")}</th><th>${L("Toʻldirilgan", "Filled")}</th><th>${L("Vaqti", "When")}</th><th></th></tr></thead><tbody>
-        ${hwRows.map(n => `<tr><td>${esc((A().hwByNum(n) || {}).title || n)}</td><td>${p.hwDone[n] ? `<span class="user-badge status-approved">${L("bajarildi", "done")}</span>` : `<span class="user-badge status-trial">${L("bajarilmoqda", "in progress")}</span>`}</td>
+        ${hwRows.map(n => `<tr><td>${esc((A().hwByNum(n) || {}).title || n)}</td><td>${isDone(n) ? `<span class="user-badge status-approved">${L("bajarildi", "done")}</span>` : `<span class="user-badge status-trial">${L("bajarilmoqda", "in progress")}</span>`}${rvl[n] && rvl[n].checked ? ` <span class="user-badge status-approved">${L("tekshirildi", "checked")}</span>` : ""}</td>
           <td class="mono">${(p.hwInputs[n] || []).filter(x => x).length}</td><td class="mono">${A().fmtAgo(p.hwAt[n])}</td>
-          <td><a class="btn btn-ghost btn-sm" href="#/hw/${n}?s=${uid}">${L("Javoblari", "Answers")}</a> <button class="btn btn-ghost btn-sm" data-reset-row="${n}">${L("Qaytadan", "Reset")}</button></td></tr>`).join("")}</tbody></table></div>` : `<p class="panel-sub">${L("Hali uy vazifasi boshlanmagan.", "No homework started yet.")}</p>`}</section>`;
+          <td class="hw-row-actions">${rvl[n] && rvl[n].checked ? `<button class="btn btn-ghost btn-sm" data-finish="${n}" data-on="0" title="${L("Oʻquvchi yana tahrirlay oladi", "The student can edit again")}">${L("Qayta ochish", "Reopen")}</button>` : `<button class="btn btn-accent btn-sm" data-finish="${n}" data-on="1">${A().I("check", 14)}${L("Bajarildi", "Passed")}</button>`} <a class="btn btn-ghost btn-sm" href="#/hw/${n}?s=${uid}">${L("Javoblari", "Answers")}</a> <button class="btn btn-ghost btn-sm" data-reset-row="${n}">${L("Qaytadan", "Reset")}</button></td></tr>`).join("")}</tbody></table></div>` : `<p class="panel-sub">${L("Hali uy vazifasi boshlanmagan.", "No homework started yet.")}</p>`}</section>`;
 }
 function openAssign(preset){
   const all = A().members(), pre = new Set(preset ? [preset] : A().myClass().map(x => x.uid));
@@ -442,6 +445,8 @@ function wire(body){
   const doReset = n => { const s = A().members().find(x => x.uid === assignView.uid); if (confirm(L(`${(s && s.name) || ""}: ${n}-uy vazifasi javoblari oʻchirilsinmi?`, `Clear ${(s && s.name) || "this student"}'s answers on homework ${n}?`))) act(() => C().queueReset(assignView.uid, n), L("Soʻrov yuborildi", "Reset queued")); };
   q("[data-reset-hw]", b => b.onclick = () => { state.rsHw = body.querySelector("#rsHw").value; doReset(state.rsHw); });
   q("[data-reset-row]", b => b.onclick = () => doReset(b.dataset.resetRow));
+  q("[data-finish]", b => b.onclick = () => { const on = b.dataset.on === "1"; b.disabled = true;
+    act(() => C().setChecked(assignView.uid, b.dataset.finish, on), on ? L("Uy vazifasi bajarildi deb belgilandi", "Marked as passed") : L("Qayta ochildi", "Reopened")); });
   q("[data-toggle]", b => b.onclick = e => { e.preventDefault();
     const uid = new URLSearchParams(query).get("s") || state.accessStudent, s = A().members().find(x => x.uid === uid);
     if (s) act(() => C().setAccess([uid], b.dataset.toggle, !s.access[b.dataset.toggle]));
