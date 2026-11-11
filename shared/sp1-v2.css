@@ -123,3 +123,69 @@ span.hw-mark{ cursor:default; }
 @media print{ .hw-sheet .blank{ background:none; } }
 .hw-key{ display:inline-flex; align-items:center; gap:3px; height:26px; padding:0 8px; border-radius:7px; border:1.5px dashed #B9B0D6; background:#FBFAFE; color:#5416B5; font-size:.8rem; font-weight:600; cursor:pointer; }
 .hw-key:hover{ background:#EFE8FB; }
+
+/* ---- wider staff pages: Settings and a student's work use the full content width ---- */
+#app:has(.set-tabs), #app:has(.stu-list){ max-width:1180px; }
+
+/* ---- students list: one card per student ---- */
+.stu-list{ display:flex; flex-direction:column; gap:10px; margin-top:6px; }
+.stu-card{
+  display:grid; grid-template-columns:minmax(220px,1.3fr) minmax(310px,1.4fr) minmax(160px,.7fr) auto; align-items:center; gap:14px 20px;
+  padding:14px 16px; border:1px solid var(--line); border-radius:16px; background:var(--surface-2);
+}
+.stu-id{ display:flex; align-items:center; gap:12px; min-width:0; }
+.stu-card .stu-avatar{ width:44px; height:44px; font-size:1.1rem; background:linear-gradient(140deg,#7B3FE4,#5416B5); color:#fff; }
+.stu-pending{ display:inline-block; margin-top:4px; background:#F5A524 !important; color:#2B1A00 !important; font-weight:700; }
+.stu-id .user-name{ font-size:1rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.stu-stats{ display:flex; gap:8px; flex-wrap:nowrap; }
+.stu-stat{ flex:1 1 0; min-width:76px; display:flex; flex-direction:column; gap:1px; padding:7px 10px; border-radius:12px; background:var(--surface); border:1px solid var(--line); }
+.stu-stat b{ font-family:var(--font-mono); font-size:1.05rem; line-height:1.2; white-space:nowrap; }
+.stu-stat b i{ font-style:normal; font-size:.8rem; color:var(--accent-mid, var(--accent)); }
+.stu-stat b.stu-ago{ font-family:var(--font-body); font-size:.86rem; font-weight:600; }
+.stu-stat{ min-width:0; overflow:hidden; flex:1 1 auto; }
+.stu-stat:last-child{ flex-grow:1.6; }
+@media (max-width:560px){ .stu-stat{ padding:7px 8px; } .stu-stat b.stu-ago{ font-size:.82rem; white-space:normal; } }
+.stu-stat small{ font-size:.68rem; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; white-space:nowrap; }
+.stu-teacher{ display:flex; flex-direction:column; gap:3px; min-width:0; }
+.stu-teacher small{ font-size:.68rem; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+.stu-teacher .select{ min-height:40px; padding:7px 10px; width:100%; }
+.stu-actions{ display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+.stu-actions .btn{ white-space:nowrap; }
+@media (max-width:1060px){
+  .stu-card{ grid-template-columns:1fr auto; }
+  .stu-stats{ grid-column:1 / -1; order:3; }
+  .stu-actions{ grid-column:1 / -1; order:4; justify-content:flex-start; }
+}
+@media (max-width:560px){
+  .stu-card{ grid-template-columns:1fr; }
+  .stu-teacher .select{ max-width:none; width:100%; }
+  .stu-actions .btn{ flex:1 1 0; justify-content:center; }
+}
+
+/* desktop topbar: keep the nav on one line */
+@media (min-width:1100px){ #mainNav{ flex-wrap:nowrap; } .navbtn{ white-space:nowrap; } }
+@media (min-width:1100px) and (max-width:1320px){ .brand-sub{ display:none; } }
+@media (min-width:1100px){
+  .unit-list.acc-grid{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px; }
+  .unit-list.acc-grid .unit-row, .unit-list.acc-grid .unit-main{ min-width:0; }
+  .unit-list.acc-grid .unit-row .btn{ white-space:nowrap; flex-shrink:0; }
+  .unit-list.acc-grid .unit-row{ margin:0; }
+  .unit-list.acc-grid .unit-main h3{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+}
+
+/* Users list: one line per person on wide screens (identity · badges · controls) */
+@media (min-width:1100px){
+  .user-row:has(> .user-row-controls){ flex-direction:row; align-items:center; gap:14px; }
+  .user-row:has(> .user-row-controls) > .user-row-top{ flex:1 1 auto; min-width:0; flex-wrap:nowrap; }
+  .user-row-controls{ flex:0 0 auto; flex-wrap:nowrap; }
+  .user-row-controls .select{ width:200px; max-width:200px; height:38px; padding-top:6px; padding-bottom:6px; font-size:14px; }
+  .user-row-controls .btn{ height:38px; }
+}
+
+/* Calendar: teacher picker and button sit beside the title instead of full-width rows */
+@media (min-width:700px){
+  .panel-head-row:has(#calTeacher){ display:flex; align-items:center; gap:10px; flex-wrap:nowrap; }
+  .panel-head-row:has(#calTeacher) > div:first-child{ flex:1 1 auto; margin-right:auto; }
+  #calTeacher{ width:240px; flex:0 0 240px; margin:0; }
+  .panel-head-row:has(#calTeacher) .btn{ flex:0 0 auto; white-space:nowrap; margin:0; }
+}

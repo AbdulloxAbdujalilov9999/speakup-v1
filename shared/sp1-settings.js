@@ -212,15 +212,22 @@ function drawStudents(el){
       <p class="panel-sub">${mgr ? L("SpeakUp-1 ga kirgan barcha oʻquvchilar.", "Every student who has signed in to SpeakUp-1.") : L("Sizga biriktirilgan oʻquvchilar.", "Students assigned to you.")}</p></div>
       ${list.length ? `<button class="btn btn-accent btn-sm" data-assign="">+ ${L("Uy vazifasi berish", "Assign homework")}</button>` : ""}</div>
     ${f.length > 2 ? filterSwitch("students", f, cur) : ""}
-    ${list.length ? `<div class="table-wrap"><table class="admin-table"><thead><tr><th>${L("Ism", "Name")}</th><th>Email</th>${mgr ? `<th>${L("Oʻqituvchi", "Teacher")}</th>` : ""}<th>${L("Ochiq darslar", "Open lessons")}</th><th>${L("Uy vazifalari", "Homework")}</th><th>${L("Oxirgi faollik", "Last active")}</th><th></th></tr></thead><tbody>
-      ${list.map(s => {
+    ${list.length ? `<div class="stu-list">${list.map(s => {
         const open = units.filter(u => A().hasFor(s, A().keyOf(u))).length, done = Object.keys(s.sp1.hwDone).length;
         const started = Object.keys(s.sp1.hwInputs).filter(k => (s.sp1.hwInputs[k] || []).some(x => x) && !s.sp1.hwDone[k]).length;
-        return `<tr><td>${esc(s.name || "—")}${s.status === "pending" ? ` <span class="user-badge status-pending">${L("kutilmoqda", "pending")}</span>` : ""}</td><td class="mono">${esc(s.email || "")}</td>
-          ${mgr ? `<td>${teacherPicker(Object.assign({ id: s.uid }, s))}</td>` : ""}
-          <td class="mono">${open}</td><td class="mono">${done} ✓${started ? ` · ${started} …` : ""}</td><td class="mono">${A().fmtAgo(s.sp1.updatedAt || s.sp1.lastSeen || s.lastActive)}</td>
-          <td><a class="btn btn-ghost btn-sm" href="#/settings/progress?s=${s.uid}">${L("Natijalar", "Progress")}</a> <a class="btn btn-ghost btn-sm" href="#/student/${s.uid}">${L("Javoblari", "Answers")}</a> <a class="btn btn-ghost btn-sm" href="#/settings/access?s=${s.uid}">${L("Ruxsat", "Access")}</a></td></tr>`;
-      }).join("")}</tbody></table></div>` : `<p class="panel-sub">${A().t("noMembers")}</p>`}</section>`;
+        const nm = s.name || s.email || "—";
+        return `<div class="stu-card">
+          <div class="stu-id"><span class="user-avatar user-avatar-fallback stu-avatar">${esc(nm.trim().charAt(0).toUpperCase())}</span>
+            <span class="user-identity"><span class="user-name">${esc(nm)}</span><span class="user-email" title="${esc(s.email || "")}">${esc(s.email || "")}</span>${s.status === "pending" ? `<span class="user-badge stu-pending">${L("tasdiqlanmagan", "not approved")}</span>` : ""}</span></div>
+          <div class="stu-stats">
+            <span class="stu-stat"><b>${open}</b><small>${L("dars ochiq", "lessons open")}</small></span>
+            <span class="stu-stat"><b title="${L("bajarildi", "done")}: ${done}${started ? " · " + L("jarayonda", "in progress") + ": " + started : ""}">${done} ✓${started ? `<i> · ${started} ✎</i>` : ""}</b><small>${L("uy vazifasi", "homework")}</small></span>
+            <span class="stu-stat"><b class="stu-ago">${A().fmtAgo(s.sp1.updatedAt || s.sp1.lastSeen || s.lastActive)}</b><small>${L("faollik", "active")}</small></span>
+          </div>
+          ${mgr ? `<label class="stu-teacher"><small>${L("Oʻqituvchi", "Teacher")}</small>${teacherPicker(Object.assign({ id: s.uid }, s))}</label>` : ""}
+          <div class="stu-actions"><a class="btn btn-sm btn-accent" href="#/settings/progress?s=${s.uid}">${L("Natijalar", "Progress")}</a><a class="btn btn-sm" href="#/student/${s.uid}">${L("Javoblari", "Answers")}</a><a class="btn btn-sm" href="#/settings/access?s=${s.uid}">${L("Ruxsat", "Access")}</a></div>
+        </div>`;
+      }).join("")}</div>` : `<p class="panel-sub">${A().t("noMembers")}</p>`}</section>`;
 }
 
 /* ---------------- Lesson access ----------------
@@ -243,7 +250,7 @@ function drawAccess(el){
     <div class="bulk-bar"><b>${picked.size} ${L("ta dars belgilandi", "selected")}</b>
       ${s ? `<button class="btn btn-accent btn-sm" data-bulk-open ${picked.size ? "" : "disabled"}>${A().I("unlock", 14)}${L("Ochish", "Open")}</button><button class="btn btn-ghost btn-sm" data-bulk-close ${picked.size ? "" : "disabled"}>${A().I("lock", 14)}${L("Yopish", "Close")}</button>`
         : `<button class="btn btn-accent btn-sm" data-bulk-grant ${picked.size ? "" : "disabled"}>${A().I("unlock", 14)}${A().t("grantAccess")}</button>`}</div>
-    <div class="unit-list">${units.map(u => {
+    <div class="unit-list acc-grid">${units.map(u => {
       const k = A().keyOf(u), b = u.type === "quiz" ? ["TEST", u.num] : ["DARS", u.num], every = !!A().openAll[k];
       const box = `<input type="checkbox" class="acc-pick" data-pick="${k}" ${picked.has(k) ? "checked" : ""} aria-label="${esc(A().unitName(u))}">`;
       if (s){
@@ -255,7 +262,7 @@ function drawAccess(el){
       const n = A().openFor(k).length;
       return `<label class="unit-row acc-row${u.type === "quiz" ? " quiz" : ""}${n || every ? " done" : ""}">${box}<span class="unit-badge"><small>${b[0]}</small><b>${b[1]}</b></span>
         <span class="unit-main"><h3>${esc(u.title)}</h3><p class="unit-meta">${esc(A().unitName(u))} · ${every ? A().t("openToAll") : n ? `${n}/${all.length} ${A().t("openForN")}` : A().t("notOpenYet")}</p></span>
-        <span class="unit-side"><button class="btn btn-sm ${n || every ? "btn-ghost" : "btn-accent"}" data-grant="${k}">${A().I("unlock", 14)}${A().t("grantAccess")}</button></span></label>`;
+        <span class="unit-side"><button class="btn btn-sm ${n || every ? "btn-ghost" : "btn-accent"}" data-grant="${k}" title="${esc(A().t("grantAccess"))}">${A().I("unlock", 14)}${L("Ruxsat berish", "Grant access")}</button></span></label>`;
     }).join("")}</div></section>`;
 }
 
