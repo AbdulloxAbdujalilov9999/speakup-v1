@@ -163,29 +163,36 @@ span.hw-mark{ cursor:default; }
 }
 
 /* desktop topbar: keep the nav on one line */
-@media (min-width:1100px){ #mainNav{ flex-wrap:nowrap; } .navbtn{ white-space:nowrap; } }
-@media (min-width:1100px) and (max-width:1320px){ .brand-sub{ display:none; } }
-@media (min-width:1100px){
-  .unit-list.acc-grid{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px; }
-  .unit-list.acc-grid .unit-row, .unit-list.acc-grid .unit-main{ min-width:0; }
-  .unit-list.acc-grid .unit-row .btn{ white-space:nowrap; flex-shrink:0; }
-  .unit-list.acc-grid .unit-row{ margin:0; }
-  .unit-list.acc-grid .unit-main h3{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* Top bar on computers: the logo never wraps, the menu stays on one line and tightens before anything breaks */
+@media (min-width:761px){
+  .brand{ flex-shrink:0; }
+  .brand-mark, .brand-sub{ white-space:nowrap; }
 }
-
-/* Users list: one line per person on wide screens (identity · badges · controls) */
-@media (min-width:1100px){
-  .user-row:has(> .user-row-controls){ flex-direction:row; align-items:center; gap:14px; }
-  .user-row:has(> .user-row-controls) > .user-row-top{ flex:1 1 auto; min-width:0; flex-wrap:nowrap; }
-  .user-row-controls{ flex:0 0 auto; flex-wrap:nowrap; }
-  .user-row-controls .select{ width:200px; max-width:200px; height:38px; padding-top:6px; padding-bottom:6px; font-size:14px; }
-  .user-row-controls .btn{ height:38px; }
+@media (min-width:980px){
+  .topbar-inner{ max-width:1340px !important; gap:10px; flex-wrap:nowrap !important; }
+  #mainNav{ flex-wrap:nowrap; min-width:0; }
+  .navbtn{ white-space:nowrap; }
+  .topbar-actions{ flex-shrink:0; }
 }
-
-/* Calendar: teacher picker and button sit beside the title instead of full-width rows */
-@media (min-width:700px){
-  .panel-head-row:has(#calTeacher){ display:flex; align-items:center; gap:10px; flex-wrap:nowrap; }
-  .panel-head-row:has(#calTeacher) > div:first-child{ flex:1 1 auto; margin-right:auto; }
-  #calTeacher{ width:240px; flex:0 0 240px; margin:0; }
-  .panel-head-row:has(#calTeacher) .btn{ flex:0 0 auto; white-space:nowrap; margin:0; }
+@media (min-width:1600px){ .topbar-inner{ max-width:1500px !important; } }
+@media (max-width:1799px){ .brand-sub{ display:none; } }
+@media (min-width:980px) and (max-width:1420px){
+  .navbtn{ padding:8px 10px; font-size:.86rem; gap:6px; }
+}
+@media (min-width:980px) and (max-width:1260px){
+  .navbtn{ padding:8px 8px; }
+  .navbtn .nav-icon{ display:none; }
+  #signOutBtn > span:last-child{ display:none; }
+}
+@media (min-width:980px) and (max-width:1020px){
+  .navbtn{ padding:8px 6px; font-size:.82rem; }
+  .brand-mark{ font-size:1.15rem; }
+}
+.brand-mark{ white-space:nowrap; }
+/* tablets: logo and account on the first row, the whole menu on one row below */
+@media (min-width:761px) and (max-width:979px){
+  .topbar-inner{ flex-wrap:wrap !important; row-gap:8px; }
+  #mainNav{ order:3; flex-basis:100%; flex-wrap:nowrap; justify-content:space-between; }
+  .navbtn{ white-space:nowrap; padding:8px 9px; font-size:.86rem; }
+  .navbtn .nav-icon{ display:none; }
 }
