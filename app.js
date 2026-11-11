@@ -78,6 +78,7 @@ function syncBoard(k){
 }
 
 let accessOff = null, peopleOff = null, openOff = null, assignOff = null, resetOff = null;
+let reviews = {}, reviewOff = null;   // student: teacher corrections {hw: {fix, marks, comment, checked}}
 let assignments = {};     // homework the teacher assigned to this student {id: {hw, note, dueDate, byName, at}}
 /* a student's opened lessons changed while the site is open: redraw lists, and leave a page that was closed */
 function onAccessChange(){
@@ -109,6 +110,7 @@ async function initUser(){
   if (openOff){ openOff(); openOff = null; }
   if (assignOff){ assignOff(); assignOff = null; }
   if (resetOff){ resetOff(); resetOff = null; }
+  if (reviewOff){ reviewOff(); reviewOff = null; }
   if (peopleOff){ peopleOff(); peopleOff = null; }
   const merge = () => { const before = JSON.stringify(access); access = Object.assign({}, openAll, myAccess); return before !== JSON.stringify(access); };
   let openFirst = true;
@@ -136,6 +138,13 @@ async function initUser(){
       const changed = JSON.stringify(v) !== JSON.stringify(assignments);
       assignments = v || {};
       if (changed) onAccessChange();
+    });
+    reviewOff = C.watchMyReviews(v => {
+      const changed = JSON.stringify(v || {}) !== JSON.stringify(reviews);
+      reviews = v || {};
+      if (!changed) return;
+      const m = location.hash.match(/^#\/hw(s|\/(\d+))?/);
+      if (location.hash.startsWith("#/homeworks") || (m && m[2])) route_();
     });
     // a teacher reset one of my homeworks: clear it here and in the cloud, then drop the request
     resetOff = C.watchResets(C.uid, v => {
@@ -208,9 +217,15 @@ const T = {
   saved:["Saqlandi","Saved"], theme:["Mavzu","Theme"],
   students:["Oʻquvchilar","Students"], signOut:["Chiqish","Sign out"], answersOf:["Kimning javoblari:","Answers of:"],
   mine:["Meniki (oʻqituvchi)","Mine (teacher)"], noStudents:["Hali oʻquvchilar yoʻq. Oʻquvchilar saytda roʻyxatdan oʻtgach, shu yerda paydo boʻladi.","No students yet. They appear here once they sign up on the site."],
-  viewingStudent:["Oʻquvchi javoblari koʻrsatilmoqda (faqat koʻrish). Yangi javob yozsa, shu yerda darhol yangilanadi.","Showing this student's answers (read-only). It updates live as they type."],
+  viewingStudent:["Oʻquvchi javoblari koʻrsatilmoqda. Yangi javob yozsa, shu yerda darhol yangilanadi; siz ustiga yozib toʻgʻrilaysiz.","Showing this student's answers, live. Type over an answer to correct it."],
+  checkedTag:["Tekshirildi","Checked"], correctWord:["toʻgʻri","correct"], teacherComment:["Oʻqituvchi izohi","Teacher's comment"],
+  reviewTitle:["Tekshirish","Marking"], reviewHelp:["Javobni toʻgʻrilash uchun ustiga yozing: oʻquvchi oʻz javobini qizil chiziq bilan, sizning tuzatishingizni yashil rangda koʻradi. ✓ / ✗ bilan baholang.","Type over an answer to correct it: the student sees their answer struck through in red and your correction in green. Mark each answer ✓ / ✗."],
+  commentPh:["Oʻquvchiga qisqa izoh…","A short comment for the student…"], markChecked:["Tekshirildi deb belgilash","Mark as checked"], reopenHw:["Qayta ochish (oʻquvchi tahrirlay oladi)","Reopen (student can edit)"],
+  checkedLocked:["Oʻqituvchi tekshirdi — javoblarni oʻzgartirib boʻlmaydi.","Your teacher checked this — answers can't be changed."], savedWord:["Saqlandi","Saved"],
   notStarted:["Boshlanmagan","Not started"], inProgress:["Bajarilmoqda","In progress"], filled:["toʻldirilgan","filled"],
   lastActive:["Oxirgi faollik","Last active"], hwOverview:["Uy vazifalari holati","Homework status"], pending:["Kutilmoqda","Pending"],
+  toolHl:["Marker","Highlighter"], toolPen:["Qalam","Pen"], toolLaser:["Lazer","Laser"], toolEraser:["Oʻchirgich","Eraser"], clearInk:["Chizmalarni tozalash","Clear drawings"],
+  hlHint:["Soʻzlar ustidan sudrang — ular sariq boʻladi","Drag over words to mark them yellow"],
   textTool:["Matn qoʻshish","Add text"], clearSlide:["Slaydni tozalash","Clear slide"],
   editHint:["Boʻsh joylarga bosing va javob yozing. «Matn qoʻshish» bilan slaydning istalgan joyiga yozing.","Click a blank to type the answer. Use “Add text” to write anywhere on the slide."],
   clickToPlace:["Slaydda matn qoʻyiladigan joyni bosing","Click on the slide where the text should go"],
@@ -263,6 +278,11 @@ const I = (name, size) => {
     home:'<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
     book:'<path d="M4 4h6a3 3 0 013 3v13a2 2 0 00-2-2H4z"/><path d="M20 4h-6a3 3 0 00-3 3v13a2 2 0 012-2h7z"/>',
     pencil:'<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/>',
+    marker:'<path d="M9 15l-4 4h6l1-1"/><path d="M9 15l3 3 8-8-3-3z"/><path d="M14 6l3 3"/>',
+    pen:'<path d="M12 19l7-7 3 3-7 7z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18z"/><circle cx="11" cy="11" r="2"/>',
+    laser:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/>',
+    eraser:'<path d="M20 20H8l-5-5 10-10 8 8-6 6"/><path d="M7 9l8 8"/>',
+    trash:'<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
     key:'<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/>',
     folder:'<path d="M3 6a2 2 0 012-2h4l2 2h8a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>',
     play:'<path d="M7 4l13 8-13 8z"/>', check:'<path d="M4 12l5 5L20 6"/>',
@@ -624,7 +644,7 @@ function viewHomeworks(){
         <a class="unit-row hw-list-row${progress.hwDone[h.num] ? " done" : ""}" href="#/hw/${h.num}" style="text-decoration:none" data-search="${esc((h.num + " " + h.title + " " + h.subtitle).toLowerCase())}">
           <span class="unit-badge"><small>UY</small><b>${progress.hwDone[h.num] ? I("check", 22) : h.num}</b></span>
           <span class="unit-main"><h3>${esc(h.title)}</h3><p class="unit-meta">${esc(h.subtitle)}</p></span>
-          <span class="unit-side">${progress.hwDone[h.num] ? `<span class="chip ok">${t("done")}</span>` : ""}${isStaff() && progress.taught["lesson-" + h.num] ? `<span class="chip">${t("taught")}</span>` : ""}${isStaff() && openAll["lesson-" + h.num] ? `<span class="chip accent">${t("openToAll")}</span>` : isStaff() && openFor("lesson-" + h.num).length ? `<span class="chip accent">${t("openFor")} ${openFor("lesson-" + h.num).length}</span>` : ""}</span>
+          <span class="unit-side">${!isStaff() && reviews[h.num] && reviews[h.num].checked ? `<span class="chip ok">${t("checkedTag")}${scoreOf(reviews[h.num]).tot ? " · " + scoreOf(reviews[h.num]).c + "/" + scoreOf(reviews[h.num]).tot : ""}</span>` : ""}${progress.hwDone[h.num] ? `<span class="chip ok">${t("done")}</span>` : ""}${isStaff() && progress.taught["lesson-" + h.num] ? `<span class="chip">${t("taught")}</span>` : ""}${isStaff() && openAll["lesson-" + h.num] ? `<span class="chip accent">${t("openToAll")}</span>` : isStaff() && openFor("lesson-" + h.num).length ? `<span class="chip accent">${t("openFor")} ${openFor("lesson-" + h.num).length}</span>` : ""}</span>
         </a>`).join("")}</div></section>`;
   }).join("")}`;
   const s = document.getElementById("hwSearch");
@@ -638,6 +658,57 @@ function viewHomeworks(){
 let hwWatch = null;
 async function getStudents(){ return isStaff() ? members() : []; }
 function stopHwWatch(){ if (hwWatch){ hwWatch(); hwWatch = null; } }
+
+/* ---- homework blanks: grow with the text; long writing lines are full-width auto-growing boxes ---- */
+const LONG_BLANK = 34;
+const measureCtx = document.createElement("canvas").getContext("2d");
+function textPx(text, el, sizePx){
+  const cs = getComputedStyle(el);
+  measureCtx.font = `${cs.fontStyle} ${cs.fontWeight} ${sizePx ? sizePx + "px" : cs.fontSize} ${cs.fontFamily}`;
+  return measureCtx.measureText(text || "").width;
+}
+function prepBlanks(sheet){
+  sheet.querySelectorAll("input.blank").forEach(inp => {
+    const sz = +inp.getAttribute("size") || 8;
+    if (sz >= LONG_BLANK){
+      const ta = document.createElement("textarea");
+      ta.className = "blank long"; ta.rows = 1; ta.spellcheck = false; ta.setAttribute("aria-label", "answer");
+      inp.replaceWith(ta);
+    } else { inp.removeAttribute("size"); inp.style.setProperty("--sz", sz); inp.spellcheck = false; inp.autocomplete = "off"; }
+  });
+  const all = [...sheet.querySelectorAll(".blank")];
+  all.forEach(el => el.addEventListener("input", () => fitBlank(el)));
+  return all;
+}
+function fitBlank(el){
+  if (el.tagName === "TEXTAREA"){ el.style.height = "auto"; el.style.height = (el.scrollHeight + 2) + "px"; return; }
+  const sz = +el.style.getPropertyValue("--sz") || 8;
+  const min = textPx("0".repeat(Math.max(4, Math.round(sz * 0.6))), el) + 14;
+  el.style.width = Math.ceil(Math.max(min, textPx(el.value, el) + 18)) + "px";
+}
+const scoreOf = r => { const m = Object.values((r && r.marks) || {}); return { c:m.filter(x => x === 1).length, tot:m.length }; };
+/* student: the teacher's corrections on my homework */
+function showMyReview(r){
+  const box = document.getElementById("rvPanel"); if (!box) return;
+  const sc = scoreOf(r);
+  box.hidden = false; box.classList.add("mine");
+  box.innerHTML = `<div class="panel-head-row"><div><h2>${r.checked ? `<span class="chip ok">${I("check", 14)} ${t("checkedTag")}</span>` : t("reviewTitle")}</h2>
+      <p class="panel-sub">${r.byName ? esc(r.byName) + " · " : ""}${fmtAgo(r.at)}${r.checked ? " · " + t("checkedLocked") : ""}</p></div>
+    ${sc.tot ? `<div class="rv-score"><b>${sc.c}/${sc.tot}</b> ${t("correctWord")}</div>` : ""}</div>
+    ${r.comment ? `<div class="rv-comment-view"><b>${t("teacherComment")}:</b> ${esc(r.comment)}</div>` : ""}`;
+}
+function applyMyReview(r){
+  const sheet = document.getElementById("hwSheet"); if (!sheet) return;
+  const fix = r.fix || {}, marks = r.marks || {};
+  [...sheet.querySelectorAll(".blank")].forEach((el, i) => {
+    const f = fix["i" + i], m = marks["i" + i];
+    if (f == null && m == null) return;
+    if (f != null) el.classList.add("wrong");
+    else if (m === 1) el.classList.add("right");
+    else if (m === 0) el.classList.add("wrong");
+    el.insertAdjacentHTML("afterend", `<span class="hw-rv">${f != null ? `<span class="hw-fix">${esc(f)}</span>` : ""}${m === 1 ? '<span class="hw-mark ok on">✓</span>' : m === 0 ? '<span class="hw-mark bad on">✗</span>' : ""}</span>`);
+  });
+}
 
 function viewHomework(n, query){
   const h = hwByNum(n);
@@ -665,7 +736,8 @@ function viewHomework(n, query){
   </div>
   ${sel ? `<p class="panel-sub no-print">${t("viewingStudent")}</p>` : `<p class="panel-sub no-print">${t("hwNote")}</p>`}
   ${!isStaff() ? assignedList().filter(a => a.hw === n).map(a => `<section class="panel locked-note no-print">${I("clock", 20)}<span><b>${t("fromTeacher")}</b>${a.dueDate ? ` · ${t("due")}: ${esc(a.dueDate)}` : ""}${a.note ? ` · “${esc(a.note)}”` : ""}</span></section>`).join("") : ""}
-  <article class="hw-sheet${sel ? " readonly" : ""}" id="hwSheet">${h.html}</article>
+  <section class="panel review-panel no-print" id="rvPanel" hidden></section>
+  <article class="hw-sheet${sel ? " reviewing" : ""}" id="hwSheet">${h.html}</article>
   ${ans && isStaff() ? (true ? `<section class="panel answer-panel">
       <div class="panel-head"><p class="eyebrow">${t("answerKeyFor")}</p><h2>${esc(ans.title)}</h2><p class="panel-sub">${esc(D.answerKey.intro)}</p></div>
       <ol>${ans.items.map(i => `<li>${esc(i)}</li>`).join("")}</ol></section>`
@@ -676,11 +748,12 @@ function viewHomework(n, query){
     ${nextH && hwOpen(nextH.num) ? `<a class="btn" href="#/hw/${nextH.num}${qs}">${t("homework")} ${nextH.num}${I("right", 18)}</a>` : ""}
   </div>`;
   const sheet = document.getElementById("hwSheet");
-  const inputs = [...sheet.querySelectorAll("input.blank")], checks = [...sheet.querySelectorAll(".hw-check input")];
+  const inputs = prepBlanks(sheet), checks = [...sheet.querySelectorAll(".hw-check input")];
   const fill = (vals, cvals) => {
-    inputs.forEach((el, i) => { el.value = (vals || [])[i] || ""; });
+    inputs.forEach((el, i) => { if (document.activeElement !== el) el.value = (vals || [])[i] || ""; fitBlank(el); });
     checks.forEach((el, i) => { el.checked = !!(cvals || [])[i]; });
   };
+  const rvPanel = document.getElementById("rvPanel");
   document.getElementById("hwPrint").onclick = () => window.print();
 
   if (isStaff()){
@@ -697,18 +770,87 @@ function viewHomework(n, query){
     ss.onchange = () => { location.hash = "#/hw/" + n + (ss.value ? "?s=" + encodeURIComponent(ss.value) : ""); };
   }
   if (sel){
-    inputs.forEach(el => el.readOnly = true); checks.forEach(el => el.disabled = true);
+    /* teacher marking: type over an answer to correct it (stored next to the student's own answer), ✓/✗ per answer, a comment */
+    checks.forEach(el => el.disabled = true);
     const st = document.getElementById("stuState");
-    hwWatch = Cloud().watchStudent(sel, p => {
-      fill(p.hwInputs[n], p.hwChecks[n]);
+    let orig = [], rv = null, saveT = null;
+    const R = () => (rv = rv || { fix:{}, marks:{}, comment:"", checked:true });
+    const save = () => { clearTimeout(saveT); saveT = setTimeout(() => {
+      const r = R(); const empty = !Object.keys(r.fix || {}).length && !Object.keys(r.marks || {}).length && !(r.comment || "").trim();
+      Cloud().saveReview(sel, n, empty && !r.checked ? null : r).then(() => { const sv = document.getElementById("rvSaved"); if (sv){ sv.hidden = false; clearTimeout(sv._t); sv._t = setTimeout(() => sv.hidden = true, 1500); } }).catch(e => alert(e.message || e));
+    }, 600); };
+    inputs.forEach((el, i) => {
+      el.insertAdjacentHTML("afterend", `<span class="hw-rv" data-rv="${i}"></span>`);
+      el.addEventListener("input", () => {
+        const r = R(); r.fix = r.fix || {}; r.marks = r.marks || {};
+        if (el.value === (orig[i] || "")) delete r.fix["i" + i];
+        else { r.fix["i" + i] = el.value; if (r.marks["i" + i] == null) r.marks["i" + i] = 0; }
+        r.checked = true; paint(); save();
+      });
+    });
+    sheet.addEventListener("click", e => {
+      const b = e.target.closest("[data-mark]"); if (!b) return;
+      e.preventDefault();
+      const r = R(), key = "i" + b.dataset.i, v = +b.dataset.mark; r.marks = r.marks || {};
+      if (r.marks[key] === v) delete r.marks[key]; else r.marks[key] = v;
+      r.checked = true; paint(); save();
+    });
+    function paint(){
+      const r = rv || {}, fix = r.fix || {}, marks = r.marks || {};
+      inputs.forEach((el, i) => {
+        const f = fix["i" + i], has = f != null;
+        if (document.activeElement !== el) el.value = has ? f : (orig[i] || "");
+        el.classList.toggle("fixed", has); fitBlank(el);
+        const m = marks["i" + i];
+        const answered = !!(orig[i] || "").trim() || has || m != null;
+        sheet.querySelector(`[data-rv="${i}"]`).innerHTML = (has ? `<s class="hw-orig" title="${t("answersOf")}">${esc(orig[i] || "—")}</s>` : "") + (!answered ? "" :
+          `<button class="hw-mark ok${m === 1 ? " on" : ""}" data-mark="1" data-i="${i}" title="✓">✓</button><button class="hw-mark bad${m === 0 ? " on" : ""}" data-mark="0" data-i="${i}" title="✗">✗</button>`);
+      });
+      const sc = scoreOf(r);
+      rvPanel.hidden = false;
+      if (!rvPanel.dataset.built){
+        rvPanel.dataset.built = "1";
+        rvPanel.innerHTML = `<div class="panel-head-row"><div><h2>${t("reviewTitle")} <span class="chip ok" id="rvTag" hidden>${t("checkedTag")}</span> <span class="chip" id="rvSaved" hidden>${t("savedWord")}</span></h2><p class="panel-sub">${t("reviewHelp")}</p></div>
+          <div class="rv-score" id="rvScore"></div></div>
+          <label class="auth-label" for="rvComment">${t("teacherComment")}</label>
+          <textarea class="auth-input rv-comment" id="rvComment" rows="2" maxlength="600" placeholder="${t("commentPh")}"></textarea>
+          <div class="toolbar" style="margin-top:10px"><button class="btn btn-sm" id="rvCheck"></button></div>`;
+        const c = document.getElementById("rvComment");
+        c.addEventListener("input", () => { const r2 = R(); r2.comment = c.value; r2.checked = true; save(); paintHead(); });
+        document.getElementById("rvCheck").onclick = () => { const r2 = R(); r2.checked = !r2.checked; save(); paintHead(); };
+      }
+      const c = document.getElementById("rvComment");
+      if (document.activeElement !== c) c.value = r.comment || "";
+      paintHead();
+      function paintHead(){
+        const r3 = rv || {}, sc3 = scoreOf(r3);
+        document.getElementById("rvScore").innerHTML = sc3.tot ? `<b>${sc3.c}/${sc3.tot}</b> ${t("correctWord")}` : "";
+        document.getElementById("rvTag").hidden = !r3.checked;
+        document.getElementById("rvCheck").innerHTML = r3.checked ? t("reopenHw") : `${I("check", 16)}${t("markChecked")}`;
+      }
+      void sc;
+    }
+    const offP = Cloud().watchStudent(sel, p => {
+      orig = p.hwInputs[n] || [];
+      checks.forEach((el, i) => { el.checked = !!(p.hwChecks[n] || [])[i]; });
+      paint();
       const f = (p.hwInputs[n] || []).filter(x => x).length;
       st.hidden = false;
       st.className = "chip" + (p.hwDone[n] ? " ok" : f ? " accent" : "");
       st.textContent = p.hwDone[n] ? t("done") : f ? `${t("inProgress")} · ${f}/${inputs.length} ${t("filled")}` : t("notStarted");
     });
+    const offR = Cloud().watchReview(sel, n, v => {
+      // keep my own unsaved typing; otherwise take the stored copy
+      if (!saveT || !rv) rv = v ? Object.assign({ fix:{}, marks:{}, comment:"" }, v) : null;
+      paint();
+    });
+    hwWatch = () => { offP(); offR(); };
     return;
   }
+  const myRv = !isStaff() ? reviews[n] : null;
+  if (myRv) showMyReview(myRv);
   fill(progress.hwInputs[n], progress.hwChecks[n]);
+  if (myRv) applyMyReview(myRv);
   inputs.forEach((el, i) => el.addEventListener("input", () => {
     const a = progress.hwInputs[n] = Array.from({ length:inputs.length }, (_, j) => (progress.hwInputs[n] || [])[j] || "");
     a[i] = el.value; syncHomework(n);
@@ -717,6 +859,11 @@ function viewHomework(n, query){
     const a = progress.hwChecks[n] = Array.from({ length:checks.length }, (_, j) => !!(progress.hwChecks[n] || [])[j]);
     a[i] = el.checked; syncHomework(n);
   }));
+  if (myRv && myRv.checked){
+    inputs.forEach(el => el.readOnly = true); checks.forEach(el => el.disabled = true);
+    ["hwDoneBtn", "hwClear"].forEach(id => { const b = document.getElementById(id); if (b) b.hidden = true; });
+    return;
+  }
   document.getElementById("hwDoneBtn").onclick = () => {
     if (progress.hwDone[n]) delete progress.hwDone[n]; else progress.hwDone[n] = Date.now();
     syncHomework(n); viewHomework(n, query);
@@ -857,7 +1004,7 @@ function openPresenter(k, startIdx){
         <button class="pr-btn" id="prFull" title="${t("fullscreen")} (F)">${I("max", 18)}<span class="lbl">${t("fullscreen")}</span></button>
         <button class="pr-btn" id="prClose" title="${t("close")} (Esc)">${I("x", 18)}</button></div>
     </div>
-    <div class="pr-stage" id="prStage"><span class="pr-loading" id="prLoading">${t("loading")}</span><canvas id="prCanvas"></canvas><div class="pr-layer" id="prLayer"></div><div class="pr-progress"><span id="prBar"></span></div></div>
+    <div class="pr-stage" id="prStage"><span class="pr-loading" id="prLoading">${t("loading")}</span><canvas id="prCanvas"></canvas><div class="pr-text textLayer" id="prTextLayer"></div><canvas class="pr-ink" id="prInk"></canvas><div class="pr-layer" id="prLayer"></div><div class="pr-laser" id="prLaser" hidden></div><div class="pr-progress"><span id="prBar"></span></div></div>
     <aside class="pr-side" id="prSide" hidden>${u.slides.map((s, i) => isStaff() || !/JAVOBLAR/i.test(s.label) ? `<button data-i="${i}"><small>${i + 1} · ${esc(s.label)}</small>${esc(s.title || s.label)}</button>` : "").join("")}</aside>
     <div class="pr-bottom">
       <div class="pr-group">
@@ -866,6 +1013,12 @@ function openPresenter(k, startIdx){
         <button class="pr-btn primary" id="prNext"><span class="lbl">${t("next")}</span>${I("right", 18)}</button>
       </div>
       <div class="pr-group"${staff ? "" : " hidden"}>
+        <button class="pr-btn pr-tool" data-tool="hl" title="${t("toolHl")} (H)">${I("marker", 18)}</button>
+        <button class="pr-btn pr-tool" data-tool="pen" title="${t("toolPen")} (P)">${I("pen", 18)}</button>
+        <span class="pr-colors" id="prColors" hidden>${["#E11D48", "#2563EB", "#16A34A"].map((c, i) => `<button data-color="${c}" class="${i ? "" : "on"}" style="background:${c}" title="${c}"></button>`).join("")}</span>
+        <button class="pr-btn pr-tool" data-tool="laser" title="${t("toolLaser")} (L)">${I("laser", 18)}</button>
+        <button class="pr-btn pr-tool" data-tool="eraser" title="${t("toolEraser")} (E)">${I("eraser", 18)}</button>
+        <button class="pr-btn" id="prInkClear" title="${t("clearInk")}">${I("trash", 18)}</button>
         <button class="pr-btn" id="prText" title="${t("textTool")} (T)">${I("pencil", 18)}<span class="lbl">${t("textTool")}</span></button>
         <button class="pr-btn" id="prClear" title="${t("clearSlide")}">${I("x", 18)}<span class="lbl">${t("clearSlide")}</span></button>
         <button class="pr-btn${settings.skipAnswers ? " on" : ""}" id="prSkip" title="${t("hideAnswers")}">${I("skip", 18)}<span class="lbl">${t("hideAnswers")}</span></button>
@@ -899,13 +1052,21 @@ function openPresenter(k, startIdx){
         while ((m = re.exec(str))){
           const i = bi++, inp = document.createElement("input");
           inp.className = "pr-blank"; inp.autocomplete = "off"; inp.spellcheck = false;
-          const w = Math.max(m[0].length * cwid, fh * 2.2);
-          Object.assign(inp.style, { left:(pt[0] + m.index * cwid) + "px", top:(pt[1] - fh * 1.05) + "px", width:w + "px", height:(fh * 1.3) + "px", fontSize:(fh * 0.92) + "px" });
+          const w = Math.max(m[0].length * cwid, fh * 2.2), left = pt[0] + m.index * cwid, baseFs = fh * 0.92;
+          Object.assign(inp.style, { left:left + "px", top:(pt[1] - fh * 1.05) + "px", width:w + "px", height:(fh * 1.3) + "px", fontSize:baseFs + "px" });
           inp.value = (sb.b && sb.b[i]) || "";
           inp.classList.toggle("has", !!inp.value);
-          inp.addEventListener("input", () => { const s2 = slideBoard(true); if (inp.value) s2.b[i] = inp.value; else delete s2.b[i]; inp.classList.toggle("has", !!inp.value); touch(); });
+          // grow to the right as the text gets longer (up to the slide's edge), then shrink the font: never cut a word off
+          const fit = () => {
+            const maxW = Math.max(w, cw - left - 4), pad = 14;
+            const tw = textPx(inp.value, inp, baseFs) + pad;
+            let width = Math.max(w, tw), fs = baseFs;
+            if (width > maxW){ width = maxW; fs = Math.max(baseFs * 0.4, baseFs * (maxW - pad) / (tw - pad)); }
+            inp.style.width = width + "px"; inp.style.fontSize = fs + "px";
+          };
+          inp.addEventListener("input", () => { const s2 = slideBoard(true); if (inp.value) s2.b[i] = inp.value; else delete s2.b[i]; inp.classList.toggle("has", !!inp.value); fit(); touch(); });
           inp.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === "Tab"){ e.preventDefault(); const all = [...layer.querySelectorAll(".pr-blank")]; const nx = all[all.indexOf(inp) + (e.shiftKey ? -1 : 1)]; if (nx) nx.focus(); else inp.blur(); } if (e.key === "Escape") inp.blur(); });
-          layer.appendChild(inp);
+          layer.appendChild(inp); fit();
         }
       });
     }).catch(() => {});
@@ -923,7 +1084,124 @@ function openPresenter(k, startIdx){
     return d;
   }
   let lastLayer = null;
-  const rebuild = () => { if (lastLayer) buildLayer(lastLayer.page, lastLayer.scale); };
+  const rebuild = () => { if (lastLayer){ buildTextLayer(lastLayer.page, lastLayer.scale); buildLayer(lastLayer.page, lastLayer.scale); sizeInk(); } };
+  const place = node => Object.assign(node.style, { left:canvas.offsetLeft + "px", top:canvas.offsetTop + "px", width:canvas.style.width, height:canvas.style.height });
+
+  /* selectable text over the slide (pdf.js text layer) */
+  const tl = el("prTextLayer"); let tlTask = null;
+  function buildTextLayer(page, scale){
+    if (tlTask){ try{ tlTask.cancel(); }catch(e){} tlTask = null; }
+    tl.innerHTML = ""; place(tl);
+    tl.style.setProperty("--scale-factor", scale);
+    if (!pdfjsLib.renderTextLayer) return;
+    const slideAt = cur, vp = page.getViewport({ scale });
+    page.getTextContent().then(tc => {
+      if (slideAt !== cur) return;
+      tlTask = pdfjsLib.renderTextLayer({ textContentSource:tc, container:tl, viewport:vp });
+      return tlTask.promise.then(() => { tl.style.width = canvas.style.width; tl.style.height = canvas.style.height; });
+    }).catch(() => {});
+  }
+
+  /* drawing tools: highlighter, pen, laser, eraser. Strokes live in the slide's board (0–1 coordinates). */
+  const ink = el("prInk"), laser = el("prLaser");
+  let tool = null, penColor = "#E11D48", stroke = null, erasing = false;
+  const r4 = v => Math.round(v * 1e4) / 1e4;
+  const inkList = () => { const sb = slideBoard(false); return (sb && sb.d) || []; };
+  function sizeInk(){
+    place(ink);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    ink.width = Math.round(parseFloat(canvas.style.width) * dpr) || 1; ink.height = Math.round(parseFloat(canvas.style.height) * dpr) || 1;
+    renderInk();
+  }
+  function renderInk(){
+    const c = ink.getContext("2d"), W = ink.width, H = ink.height;
+    c.clearRect(0, 0, W, H);
+    inkList().concat(stroke ? [stroke] : []).forEach(s => {
+      if (!s) return;
+      if (s.k === "h"){
+        c.fillStyle = "rgba(255,214,0,0.42)";
+        for (let j = 0; j + 3 < (s.r || []).length; j += 4) c.fillRect(s.r[j] * W, s.r[j + 1] * H, s.r[j + 2] * W, s.r[j + 3] * H);
+        return;
+      }
+      const p = s.p || []; if (p.length < 2) return;
+      c.strokeStyle = s.c || "#E11D48"; c.lineWidth = (s.w || 0.006) * H; c.lineCap = "round"; c.lineJoin = "round";
+      c.beginPath(); c.moveTo(p[0] * W, p[1] * H);
+      if (p.length === 2) c.lineTo(p[0] * W + 0.1, p[1] * H);
+      for (let j = 2; j + 1 < p.length; j += 2){
+        const mx = (p[j - 2] + p[j]) / 2 * W, my = (p[j - 1] + p[j + 1]) / 2 * H;
+        c.quadraticCurveTo(p[j - 2] * W, p[j - 1] * H, mx, my);
+      }
+      c.lineTo(p[p.length - 2] * W, p[p.length - 1] * H);
+      c.stroke();
+    });
+  }
+  const normPt = e => { const r = ink.getBoundingClientRect(); return { x:(e.clientX - r.left) / r.width, y:(e.clientY - r.top) / r.height, ar:r.width / r.height }; };
+  function eraseAt(pt){
+    const sb = slideBoard(false); if (!sb || !sb.d || !sb.d.length) return;
+    const R = 0.02, near = (x, y) => Math.hypot((x - pt.x) * pt.ar, y - pt.y) < R;
+    const keep = sb.d.filter(s => {
+      if (!s) return false;
+      if (s.k === "h"){ for (let j = 0; j + 3 < s.r.length; j += 4) if (pt.x >= s.r[j] - R / 2 && pt.x <= s.r[j] + s.r[j + 2] + R / 2 && pt.y >= s.r[j + 1] - R / 2 && pt.y <= s.r[j + 1] + s.r[j + 3] + R / 2) return false; return true; }
+      for (let j = 0; j + 1 < s.p.length; j += 2) if (near(s.p[j], s.p[j + 1])) return false;
+      return true;
+    });
+    if (keep.length !== sb.d.length){ sb.d = keep; touch(); renderInk(); }
+  }
+  ink.addEventListener("pointerdown", e => {
+    if (tool !== "pen" && tool !== "eraser") return;
+    e.preventDefault(); ink.setPointerCapture(e.pointerId);
+    const pt = normPt(e);
+    if (tool === "pen"){ stroke = { k:"p", c:penColor, w:0.006, p:[r4(pt.x), r4(pt.y)] }; renderInk(); }
+    else { erasing = true; eraseAt(pt); }
+  });
+  ink.addEventListener("pointermove", e => {
+    if (tool === "eraser" && erasing) return eraseAt(normPt(e));
+    if (!stroke) return;
+    const pt = normPt(e), p = stroke.p;
+    if (Math.hypot((pt.x - p[p.length - 2]) * pt.ar, pt.y - p[p.length - 1]) < 0.003) return;
+    p.push(r4(pt.x), r4(pt.y)); renderInk();
+  });
+  const endStroke = () => {
+    erasing = false;
+    if (!stroke) return;
+    const s2 = slideBoard(true); s2.d = (s2.d || []).filter(Boolean); s2.d.push(stroke); stroke = null; touch(); renderInk();
+  };
+  ink.addEventListener("pointerup", endStroke); ink.addEventListener("pointercancel", endStroke);
+  // highlighter: select words on the text layer, then they turn into yellow marks
+  stage.addEventListener("pointerup", () => {
+    if (tool !== "hl") return;
+    setTimeout(() => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.rangeCount || !tl.contains(sel.anchorNode)) return;
+      const box = tl.getBoundingClientRect(), r = [];
+      [...sel.getRangeAt(0).getClientRects()].forEach(q => {
+        const x = Math.max(q.left, box.left), y = Math.max(q.top, box.top), x2 = Math.min(q.right, box.right), y2 = Math.min(q.bottom, box.bottom);
+        if (x2 - x < 2 || y2 - y < 2) return;
+        r.push(r4((x - box.left) / box.width), r4((y - box.top) / box.height), r4((x2 - x) / box.width), r4((y2 - y) / box.height));
+      });
+      sel.removeAllRanges();
+      if (!r.length) return;
+      const s2 = slideBoard(true); s2.d = (s2.d || []).filter(Boolean); s2.d.push({ k:"h", r }); touch(); renderInk();
+    }, 0);
+  });
+  stage.addEventListener("pointermove", e => {
+    if (tool !== "laser") return;
+    const r = stage.getBoundingClientRect();
+    laser.hidden = false; laser.style.transform = `translate(${e.clientX - r.left}px, ${e.clientY - r.top}px)`;
+  });
+  stage.addEventListener("pointerleave", () => { laser.hidden = true; });
+  function setTool(tn){
+    tool = tool === tn ? null : tn;
+    ["hl", "pen", "laser", "eraser"].forEach(x => stage.classList.toggle("tool-" + x, tool === x));
+    document.querySelectorAll(".pr-tool").forEach(b => b.classList.toggle("on", b.dataset.tool === tool));
+    el("prColors").hidden = tool !== "pen";
+    if (tool !== "laser") laser.hidden = true;
+    if (tool && textMode){ textMode = false; el("prText").classList.remove("on"); layer.classList.remove("texting"); }
+    if (tool === "hl") toast(t("hlHint"));
+  }
+  document.querySelectorAll(".pr-tool").forEach(b => b.onclick = () => setTool(b.dataset.tool));
+  el("prColors").addEventListener("click", e => { const b = e.target.closest("[data-color]"); if (!b) return; penColor = b.dataset.color; el("prColors").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); });
+  el("prInkClear").onclick = () => { const sb = slideBoard(false); if (sb && sb.d){ delete sb.d; touch(); } renderInk(); };
   layer.addEventListener("click", e => {
     if (!textMode || e.target !== layer) return;
     const r = layer.getBoundingClientRect();
@@ -947,6 +1225,7 @@ function openPresenter(k, startIdx){
     const s = u.slides[cur];
     const w = stage.clientWidth - 24, h = stage.clientHeight - 24;
     layer.innerHTML = "";
+    tl.innerHTML = ""; if (ink.width) ink.getContext("2d").clearRect(0, 0, ink.width, ink.height);
     renderPage(u.pdf, cur + 1, canvas, w, h).then(tk => { task = tk; lastLayer = tk.sp1; return tk.promise; }).then(() => { task = null; const l = document.getElementById("prLoading"); if (l) l.remove(); rebuild(); })
       .catch(e => { if (e && e.name === "RenderingCancelledException") return; showError(); });
   }
@@ -1009,15 +1288,17 @@ function openPresenter(k, startIdx){
     else if (e.key === "f" || e.key === "F"){ fullscreen(); }
     else if (e.key === "o" || e.key === "O"){ el("prOutline").click(); }
     else if ((e.key === "t" || e.key === "T") && staff){ el("prText").click(); }
+    else if (staff && "hHpPlLeE".includes(e.key) && e.key.length === 1){ setTool({ h:"hl", p:"pen", l:"laser", e:"eraser" }[e.key.toLowerCase()]); }
+    else if (e.key === "Escape" && (tool || textMode)){ if (tool) setTool(tool); if (textMode) el("prText").click(); }
     else if (e.key === "Escape" && !document.fullscreenElement){ closePresenter(); }
   }
   let tx = null;
-  stage.addEventListener("touchstart", e => { tx = e.target.closest(".pr-blank,.pr-note") ? null : e.touches[0].clientX; }, { passive:true });
+  stage.addEventListener("touchstart", e => { tx = e.target.closest(".pr-blank,.pr-note") || tool === "pen" || tool === "eraser" || tool === "hl" ? null : e.touches[0].clientX; }, { passive:true });
   stage.addEventListener("touchend", e => {
     if (tx == null) return; const dx = e.changedTouches[0].clientX - tx; tx = null;
     if (Math.abs(dx) > 40) step(dx < 0 ? 1 : -1);
   });
-  el("prText").onclick = () => { textMode = !textMode; el("prText").classList.toggle("on", textMode); layer.classList.toggle("texting", textMode); if (textMode) toast(t("clickToPlace")); };
+  el("prText").onclick = () => { if (tool) setTool(tool); textMode = !textMode; el("prText").classList.toggle("on", textMode); layer.classList.toggle("texting", textMode); if (textMode) toast(t("clickToPlace")); };
   el("prClear").onclick = () => { const b = board(); delete b.s[cur]; touch(); rebuild(); };
   el("prPrev").onclick = () => step(-1);
   el("prNext").onclick = () => step(1);

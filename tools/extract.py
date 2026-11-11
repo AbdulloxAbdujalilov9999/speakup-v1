@@ -65,7 +65,7 @@ def run_html(r):
         elif tag == 'br': parts.append('<br>')
     s = ''.join(parts)
     if not s: return ''
-    s = re.sub(r'_{3,}', lambda m: '<input class="blank" size="%d" aria-label="answer">' % max(4, min(24, len(m.group()))), s)
+    s = re.sub(r'_{3,}', lambda m: '<input class="blank" size="%d" aria-label="answer">' % max(4, len(m.group())), s)
     st = []
     if rpr is not None:
         c = rpr.find(W+'color')
