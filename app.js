@@ -142,6 +142,11 @@ async function initUser(){
     reviewOff = C.watchMyReviews(v => {
       const changed = JSON.stringify(v || {}) !== JSON.stringify(reviews);
       reviews = v || {};
+      Object.keys(reviews).forEach(n => {
+        if (reviews[n] && reviews[n].checked && !progress.hwDone[n]){
+          progress.hwDone[n] = reviews[n].at || Date.now(); saveProgress(); C.markDone(n, progress.hwDone[n]).catch(() => {});
+        }
+      });
       if (!changed) return;
       const m = location.hash.match(/^#\/hw(s|\/(\d+))?/);
       if (location.hash.startsWith("#/homeworks") || (m && m[2])) route_();
@@ -221,7 +226,7 @@ const T = {
   checkedTag:["Tekshirildi","Checked"], autoMark:["Kalit boʻyicha belgilash","Mark from the answer key"], toReview:["ta javob kalitdan farq qiladi — 🔑 ni bosib tuzating yoki ✓ qoʻying","answers differ from the key — tap 🔑 to correct or give ✓"],
   useKey:["Kalitdagi javobni tuzatish sifatida qoʻyish","Use the key's answer as the correction"], correctWord:["toʻgʻri","correct"], teacherComment:["Oʻqituvchi izohi","Teacher's comment"],
   reviewTitle:["Tekshirish","Marking"], reviewHelp:["Javobni toʻgʻrilash uchun ustiga yozing: oʻquvchi oʻz javobini qizil chiziq bilan, sizning tuzatishingizni yashil rangda koʻradi. ✓ / ✗ bilan baholang.","Type over an answer to correct it: the student sees their answer struck through in red and your correction in green. Mark each answer ✓ / ✗."],
-  commentPh:["Oʻquvchiga qisqa izoh…","A short comment for the student…"], markChecked:["Tekshirildi deb belgilash","Mark as checked"], reopenHw:["Qayta ochish (oʻquvchi tahrirlay oladi)","Reopen (student can edit)"],
+  commentPh:["Oʻquvchiga qisqa izoh…","A short comment for the student…"], markChecked:["Bajarildi deb belgilash","Mark as finished"], reopenHw:["Qayta ochish (oʻquvchi tahrirlay oladi)","Reopen (student can edit)"],
   checkedLocked:["Oʻqituvchi tekshirdi — javoblarni oʻzgartirib boʻlmaydi.","Your teacher checked this — answers can't be changed."], savedWord:["Saqlandi","Saved"],
   notStarted:["Boshlanmagan","Not started"], inProgress:["Bajarilmoqda","In progress"], filled:["toʻldirilgan","filled"],
   lastActive:["Oxirgi faollik","Last active"], hwOverview:["Uy vazifalari holati","Homework status"], pending:["Kutilmoqda","Pending"],
@@ -912,7 +917,7 @@ function viewHomework(n, query){
           r2.checked = true; paint(); save();
           toast(`${ok} ✓ · ${bad} ${t("toReview")}`);
         };
-        document.getElementById("rvCheck").onclick = () => { const r2 = R(); r2.checked = !r2.checked; save(); paintHead(); };
+        document.getElementById("rvCheck").onclick = () => { const was = !!(rv && rv.checked), r2 = R(); r2.checked = !was; save(); paintHead(); };
       }
       const c = document.getElementById("rvComment");
       if (document.activeElement !== c) c.value = r.comment || "";
@@ -921,18 +926,26 @@ function viewHomework(n, query){
         const r3 = rv || {}, sc3 = scoreOf(r3);
         document.getElementById("rvScore").innerHTML = sc3.tot ? `<b>${sc3.c}/${sc3.tot}</b> ${t("correctWord")}` : "";
         document.getElementById("rvTag").hidden = !r3.checked;
-        document.getElementById("rvCheck").innerHTML = r3.checked ? t("reopenHw") : `${I("check", 16)}${t("markChecked")}`;
+        const ck = document.getElementById("rvCheck");
+        ck.innerHTML = r3.checked ? t("reopenHw") : `${I("check", 16)}${t("markChecked")}`;
+        ck.className = "btn btn-sm" + (r3.checked ? "" : " btn-accent");
+        paintStatus();
       }
       void sc;
+    }
+    let lastP = null;
+    function paintStatus(){   // a homework the teacher marked as finished counts as done, however much is filled
+      if (!lastP) return;
+      const p = lastP, f = (p.hwInputs[n] || []).filter(x => x).length, done = p.hwDone[n] || (rv && rv.checked);
+      st.hidden = false;
+      st.className = "chip" + (done ? " ok" : f ? " accent" : "");
+      st.textContent = done ? `${t("done")}${f < inputs.length ? ` · ${f}/${inputs.length} ${t("filled")}` : ""}` : f ? `${t("inProgress")} · ${f}/${inputs.length} ${t("filled")}` : t("notStarted");
     }
     const offP = Cloud().watchStudent(sel, p => {
       orig = p.hwInputs[n] || [];
       checks.forEach((el, i) => { el.checked = !!(p.hwChecks[n] || [])[i]; });
       paint();
-      const f = (p.hwInputs[n] || []).filter(x => x).length;
-      st.hidden = false;
-      st.className = "chip" + (p.hwDone[n] ? " ok" : f ? " accent" : "");
-      st.textContent = p.hwDone[n] ? t("done") : f ? `${t("inProgress")} · ${f}/${inputs.length} ${t("filled")}` : t("notStarted");
+      lastP = p; paintStatus();
     });
     const offR = Cloud().watchReview(sel, n, v => {
       // keep my own unsaved typing; otherwise take the stored copy

@@ -154,6 +154,8 @@ const Cloud = {
     u.name = this.profile && this.profile.name || "";
     return update(ref(db, "sp1/progress/" + this.uid), u).catch(e => console.warn("sync", e));
   },
+  // only the done flag: a checked homework's answers are locked, so don't rewrite them
+  markDone(n, ts){ if (!this.uid) return Promise.resolve(); const u = {}; u[`hwDone/${n}`] = ts || Date.now(); u.updatedAt = Date.now(); return update(ref(db, "sp1/progress/" + this.uid), u); },
   async loadBoards(){ return (await get(ref(db, "sp1/boards/" + this.uid))).val() || {}; },
   saveBoard(key, board){ if (this.uid) return set(ref(db, `sp1/boards/${this.uid}/${key}`), board || null).catch(e => console.warn("board", e)); },
   watchStudent(uid, cb){ return onValue(ref(db, "sp1/progress/" + uid), s => cb(normProgress(s.val())), () => cb(normProgress(null))); },
