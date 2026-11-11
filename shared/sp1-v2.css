@@ -70,17 +70,16 @@
   font:inherit; font-size:0.95rem; border:none; border-bottom:2px solid #B9B0D6; background:#F7F5FC; color:#2E2364;
   padding:1px 6px; margin:2px 2px; border-radius:4px 4px 0 0; max-width:100%; box-sizing:border-box; vertical-align:baseline;
 }
-.hw-sheet input.blank{ min-width:4.5em; width:calc(var(--sz, 8) * 0.6ch + 14px); }
-.hw-sheet textarea.blank.long{
-  display:block; width:100%; min-height:2em; resize:none; overflow:hidden; line-height:1.5; margin:4px 0; white-space:pre-wrap; overflow-wrap:anywhere;
-}
+.hw-sheet textarea.blank{ resize:none; overflow:hidden; line-height:1.45; white-space:pre-wrap; overflow-wrap:anywhere; font-family:inherit; }
+.hw-sheet textarea.blank.short{ display:inline-block; min-width:4.5em; width:calc(var(--sz, 8) * 0.6ch + 14px); height:1.9em; vertical-align:middle; }
+.hw-sheet textarea.blank.long{ display:block; width:100%; min-height:2em; margin:4px 0; }
 .hw-sheet .blank:focus{ outline:none; border-bottom-color:#5416B5; background:#EFE8FB; }
 .hw-sheet .blank[readonly]{ cursor:default; }
 @media (max-width:640px){ .hw-sheet .blank{ font-size:16px; } }   /* no zoom-on-focus on phones */
 
 /* ---- teacher corrections ---- */
 .hw-rv{ display:inline-flex; align-items:center; gap:4px; margin:0 6px 0 2px; vertical-align:middle; flex-wrap:wrap; }
-textarea.blank + .hw-rv{ display:flex; margin:0 0 6px; }
+textarea.blank.long + .hw-rv{ display:flex; margin:0 0 6px; }
 .hw-orig{ color:#D92D20; text-decoration:line-through; text-decoration-thickness:2px; font-size:.88rem; }
 .hw-fix{ color:#0E8A4A; font-weight:700; background:#E6F7EE; border-radius:4px; padding:1px 6px; white-space:pre-wrap; }
 .hw-mark{ min-width:26px; height:26px; border-radius:7px; border:1.5px solid #D9D3EA; background:#fff; color:#8A84A3; font-weight:800; font-size:.85rem; line-height:1; display:inline-grid; place-items:center; padding:0; cursor:pointer; }
@@ -120,3 +119,7 @@ span.hw-mark{ cursor:default; }
 .pr-colors button.on{ border-color:#fff; box-shadow:0 0 0 2px rgba(255,255,255,0.35); }
 .pr-blank{ z-index:1; }
 .pr-blank:focus{ z-index:2; }
+
+@media print{ .hw-sheet .blank{ background:none; } }
+.hw-key{ display:inline-flex; align-items:center; gap:3px; height:26px; padding:0 8px; border-radius:7px; border:1.5px dashed #B9B0D6; background:#FBFAFE; color:#5416B5; font-size:.8rem; font-weight:600; cursor:pointer; }
+.hw-key:hover{ background:#EFE8FB; }

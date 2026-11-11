@@ -218,7 +218,8 @@ const T = {
   students:["Oʻquvchilar","Students"], signOut:["Chiqish","Sign out"], answersOf:["Kimning javoblari:","Answers of:"],
   mine:["Meniki (oʻqituvchi)","Mine (teacher)"], noStudents:["Hali oʻquvchilar yoʻq. Oʻquvchilar saytda roʻyxatdan oʻtgach, shu yerda paydo boʻladi.","No students yet. They appear here once they sign up on the site."],
   viewingStudent:["Oʻquvchi javoblari koʻrsatilmoqda. Yangi javob yozsa, shu yerda darhol yangilanadi; siz ustiga yozib toʻgʻrilaysiz.","Showing this student's answers, live. Type over an answer to correct it."],
-  checkedTag:["Tekshirildi","Checked"], correctWord:["toʻgʻri","correct"], teacherComment:["Oʻqituvchi izohi","Teacher's comment"],
+  checkedTag:["Tekshirildi","Checked"], autoMark:["Kalit boʻyicha belgilash","Mark from the answer key"], toReview:["ta javob kalitdan farq qiladi — 🔑 ni bosib tuzating yoki ✓ qoʻying","answers differ from the key — tap 🔑 to correct or give ✓"],
+  useKey:["Kalitdagi javobni tuzatish sifatida qoʻyish","Use the key's answer as the correction"], correctWord:["toʻgʻri","correct"], teacherComment:["Oʻqituvchi izohi","Teacher's comment"],
   reviewTitle:["Tekshirish","Marking"], reviewHelp:["Javobni toʻgʻrilash uchun ustiga yozing: oʻquvchi oʻz javobini qizil chiziq bilan, sizning tuzatishingizni yashil rangda koʻradi. ✓ / ✗ bilan baholang.","Type over an answer to correct it: the student sees their answer struck through in red and your correction in green. Mark each answer ✓ / ✗."],
   commentPh:["Oʻquvchiga qisqa izoh…","A short comment for the student…"], markChecked:["Tekshirildi deb belgilash","Mark as checked"], reopenHw:["Qayta ochish (oʻquvchi tahrirlay oladi)","Reopen (student can edit)"],
   checkedLocked:["Oʻqituvchi tekshirdi — javoblarni oʻzgartirib boʻlmaydi.","Your teacher checked this — answers can't be changed."], savedWord:["Saqlandi","Saved"],
@@ -668,23 +669,102 @@ function textPx(text, el, sizePx){
   return measureCtx.measureText(text || "").width;
 }
 function prepBlanks(sheet){
+  // every blank is a textarea, so a long answer wraps onto the next line instead of being cut off
   sheet.querySelectorAll("input.blank").forEach(inp => {
     const sz = +inp.getAttribute("size") || 8;
-    if (sz >= LONG_BLANK){
-      const ta = document.createElement("textarea");
-      ta.className = "blank long"; ta.rows = 1; ta.spellcheck = false; ta.setAttribute("aria-label", "answer");
-      inp.replaceWith(ta);
-    } else { inp.removeAttribute("size"); inp.style.setProperty("--sz", sz); inp.spellcheck = false; inp.autocomplete = "off"; }
+    const ta = document.createElement("textarea");
+    ta.rows = 1; ta.spellcheck = false; ta.setAttribute("autocomplete", "off"); ta.setAttribute("aria-label", "answer");
+    if (sz >= LONG_BLANK) ta.className = "blank long";
+    else { ta.className = "blank short"; ta.style.setProperty("--sz", sz); }
+    inp.replaceWith(ta);
   });
   const all = [...sheet.querySelectorAll(".blank")];
-  all.forEach(el => el.addEventListener("input", () => fitBlank(el)));
+  all.forEach((el, i) => {
+    el.addEventListener("input", () => fitBlank(el));
+    // Enter goes to the next blank (Shift+Enter starts a new line inside a writing line)
+    el.addEventListener("keydown", e => {
+      if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
+      e.preventDefault();
+      const nx = all.slice(i + 1).find(x => !x.readOnly);
+      if (nx){ nx.focus(); nx.setSelectionRange(nx.value.length, nx.value.length); } else el.blur();
+    });
+  });
   return all;
 }
 function fitBlank(el){
-  if (el.tagName === "TEXTAREA"){ el.style.height = "auto"; el.style.height = (el.scrollHeight + 2) + "px"; return; }
-  const sz = +el.style.getPropertyValue("--sz") || 8;
-  const min = textPx("0".repeat(Math.max(4, Math.round(sz * 0.6))), el) + 14;
-  el.style.width = Math.ceil(Math.max(min, textPx(el.value, el) + 18)) + "px";
+  if (el.classList.contains("short")){
+    const sz = +el.style.getPropertyValue("--sz") || 8;
+    const min = textPx("0".repeat(Math.max(4, Math.round(sz * 0.6))), el) + 14;
+    el.style.width = Math.ceil(Math.max(min, textPx(el.value, el) + 18)) + "px";   // CSS max-width:100% wraps the rest
+  }
+  el.style.height = "auto"; el.style.height = (el.scrollHeight + 2) + "px";
+}
+/* answer key → the expected answer for each blank of a homework (exercises 2–6: "N) answer", "1–d", "word → answer").
+ * Returns [{ex, item, key:[alternatives], ctxAfter}] by blank index, or null where the key doesn't say. */
+const normAns = v => String(v || "").toLowerCase().replace(/[’‘`ʼ]/g, "'").replace(/[.!?,;:]+$/g, "").replace(/\s+/g, " ").trim();
+function keyMap(sheet, n){
+  const ak = D.answerKey.lessons[n]; if (!ak) return [];
+  const keys = {};
+  ak.items.forEach(line => {
+    const m = line.match(/^(\d+)\.\s*(.*)$/); if (!m) return;
+    const ex = +m[1]; let body = m[2];
+    const parts = {};   // item number → the key text for it
+    if (/\b\d+\s*[–-]\s*[a-h]\b/.test(body)) body.split(/,\s*/).forEach(x => { const q = x.match(/(\d+)\s*[–-]\s*([a-h])/); if (q) parts[+q[1]] = q[2]; });
+    else if (/\d\)/.test(body)) body.replace(/^[^)]*?:\s(?=\d+\))/, "").split(/;\s*(?=\d+\))/).forEach(x => { const q = x.match(/^\s*(\d+)\)\s*(.*)$/); if (q) parts[+q[1]] = q[2].replace(/;\s*$/, ""); });
+    else if (/→/.test(body)){
+      // "pol; qavat → floor" is one item: glue pieces until one has the arrow
+      let acc = "", i = 0;
+      body.split(/;\s*/).forEach(x => { acc = acc ? acc + "; " + x : x; if (x.includes("→")){ parts[++i] = acc.split("→")[1].trim(); acc = ""; } });
+    }
+    keys[ex] = parts;
+  });
+  const out = [], perItem = {};
+  let ex = 0, lastItem = 0;
+  const blanks = [...sheet.querySelectorAll(".blank")];
+  const walker = document.createTreeWalker(sheet, NodeFilter.SHOW_ELEMENT);
+  const info = new Map();
+  for (let node = walker.nextNode(); node; node = walker.nextNode()){
+    if (node.classList.contains("hw-h")){ const q = node.textContent.match(/^\s*(\d+)\./); ex = q ? +q[1] : 0; lastItem = 0; }
+    if (/^(P|TD|LI)$/.test(node.tagName)){ const q = node.textContent.match(/^\s*(\d+)[.)]\s/); if (q) lastItem = +q[1]; }
+    if (!node.classList.contains("blank")) continue;
+    const block = node.closest("td,th,p,li,div") || node.parentElement;
+    // text of the block before and after this blank
+    let before = "", after = "", seen = false;
+    block.childNodes.forEach(function walk(c){
+      if (c === node){ seen = true; return; }
+      if (c.nodeType === 3){ if (seen) after += c.data; else before += c.data; }
+      else if (c.nodeType === 1){ if (c.classList && c.classList.contains("blank")){ if (seen) after += "\u0000"; else before += "\u0000"; } else c.childNodes.forEach(walk); }
+    });
+    const seg = before.split("\u0000").pop();
+    const q = seg.match(/(\d+)\s*[–-]\s*$/) || before.match(/^\s*(\d+)[.)]/);
+    // "Savol: ____" / "Inkor: ____" lines belong to the numbered sentence above them
+    const item = q ? +q[1] : (/^\s*[A-Za-zʻ’' ]{0,12}:?\s*$/.test(before) ? lastItem : 0);
+    info.set(node, { ex, item, after: after.split("\u0000")[0] });
+    const id = ex + ":" + item; perItem[id] = (perItem[id] || 0) + 1;
+  }
+  const ord = {};
+  blanks.forEach((b, i) => {
+    out[i] = null;
+    const f = info.get(b); if (!f || !f.item || !keys[f.ex]) return;
+    const raw = keys[f.ex][f.item], id = f.ex + ":" + f.item, cnt = perItem[id], j = ord[id] = (ord[id] || 0) + 1;
+    if (!raw || raw === "–" || /^\(|oʻz javob/i.test(raw)) return;          // open answers have no single key
+    let alts;
+    if (cnt === 1) alts = raw.split(/\s+\/\s+/);
+    else {
+      // two blanks for one item: "Is she tired? / She isn't tired.", "Does … work", "Is there a TV? Yes, there is."
+      const segs = raw.includes(" / ") ? raw.split(/\s+\/\s+/) : raw.includes("…") ? raw.split(/\s*…\s*/) : raw.split(/(?<=\?)\s+/);
+      if (segs.length !== cnt) return;
+      alts = [segs[j - 1]];
+    }
+    alts = alts.map(x => x.trim()).filter(Boolean);
+    if (alts.length) out[i] = { ex:f.ex, item:f.item, key:alts, after:f.after };
+  });
+  return out;
+}
+function keyMatches(k, ans){
+  const a = normAns(ans); if (!a || !k) return false;
+  const next = normAns(k.after).split(" ")[0] || "";
+  return k.key.some(x => { const e = normAns(x); const lead = e.split(" – ")[0]; return a === e || (e.includes(" – ") && a === lead) || (next && e.endsWith(" " + next) && a === e.slice(0, -(next.length + 1)).trim()); });
 }
 const scoreOf = r => { const m = Object.values((r && r.marks) || {}); return { c:m.filter(x => x === 1).length, tot:m.length }; };
 /* student: the teacher's corrections on my homework */
@@ -774,6 +854,10 @@ function viewHomework(n, query){
     checks.forEach(el => el.disabled = true);
     const st = document.getElementById("stuState");
     let orig = [], rv = null, saveT = null;
+    const km = keyMap(sheet, n);
+    // the key's answer in the form the blank needs ("an egg" before "egg" → "an")
+    const keyShort = k => { const e = k.key[0], next = (k.after || "").trim().split(/\s+/)[0] || "";
+      return next && normAns(e).endsWith(" " + normAns(next)) ? e.slice(0, e.length - next.length).trim().replace(/[\s–-]+$/, "") : e.replace(/^([A-Z]) – .*$/, "$1"); };
     const R = () => (rv = rv || { fix:{}, marks:{}, comment:"", checked:true });
     const save = () => { clearTimeout(saveT); saveT = setTimeout(() => {
       const r = R(); const empty = !Object.keys(r.fix || {}).length && !Object.keys(r.marks || {}).length && !(r.comment || "").trim();
@@ -789,6 +873,9 @@ function viewHomework(n, query){
       });
     });
     sheet.addEventListener("click", e => {
+      const kb = e.target.closest("[data-key-i]");
+      if (kb){ e.preventDefault(); const i = +kb.dataset.keyI, r = R(); r.fix = r.fix || {}; r.marks = r.marks || {};
+        r.fix["i" + i] = keyShort(km[i]); r.marks["i" + i] = 0; r.checked = true; paint(); save(); return; }
       const b = e.target.closest("[data-mark]"); if (!b) return;
       e.preventDefault();
       const r = R(), key = "i" + b.dataset.i, v = +b.dataset.mark; r.marks = r.marks || {};
@@ -803,8 +890,9 @@ function viewHomework(n, query){
         el.classList.toggle("fixed", has); fitBlank(el);
         const m = marks["i" + i];
         const answered = !!(orig[i] || "").trim() || has || m != null;
+        const k = km[i], miss = k && (orig[i] || "").trim() && !has && !keyMatches(k, orig[i]);
         sheet.querySelector(`[data-rv="${i}"]`).innerHTML = (has ? `<s class="hw-orig" title="${t("answersOf")}">${esc(orig[i] || "—")}</s>` : "") + (!answered ? "" :
-          `<button class="hw-mark ok${m === 1 ? " on" : ""}" data-mark="1" data-i="${i}" title="✓">✓</button><button class="hw-mark bad${m === 0 ? " on" : ""}" data-mark="0" data-i="${i}" title="✗">✗</button>`);
+          `<button class="hw-mark ok${m === 1 ? " on" : ""}" data-mark="1" data-i="${i}" title="✓">✓</button><button class="hw-mark bad${m === 0 ? " on" : ""}" data-mark="0" data-i="${i}" title="✗">✗</button>`) + (miss ? `<button class="hw-key" data-key-i="${i}" title="${t("useKey")}">${I("key", 12)} ${esc(keyShort(k))}</button>` : "");
       });
       const sc = scoreOf(r);
       rvPanel.hidden = false;
@@ -814,9 +902,16 @@ function viewHomework(n, query){
           <div class="rv-score" id="rvScore"></div></div>
           <label class="auth-label" for="rvComment">${t("teacherComment")}</label>
           <textarea class="auth-input rv-comment" id="rvComment" rows="2" maxlength="600" placeholder="${t("commentPh")}"></textarea>
-          <div class="toolbar" style="margin-top:10px"><button class="btn btn-sm" id="rvCheck"></button></div>`;
+          <div class="toolbar" style="margin-top:10px"><button class="btn btn-sm btn-accent" id="rvAuto">${I("key", 16)}${t("autoMark")}</button><button class="btn btn-sm" id="rvCheck"></button></div>`;
         const c = document.getElementById("rvComment");
         c.addEventListener("input", () => { const r2 = R(); r2.comment = c.value; r2.checked = true; save(); paintHead(); });
+        document.getElementById("rvAuto").onclick = () => {
+          const r2 = R(); r2.marks = r2.marks || {}; r2.fix = r2.fix || {}; let ok = 0, bad = 0;
+          km.forEach((k, i) => { if (!k || !(orig[i] || "").trim() || r2.fix["i" + i] != null) return;
+            if (keyMatches(k, orig[i])){ r2.marks["i" + i] = 1; ok++; } else bad++; });
+          r2.checked = true; paint(); save();
+          toast(`${ok} ✓ · ${bad} ${t("toReview")}`);
+        };
         document.getElementById("rvCheck").onclick = () => { const r2 = R(); r2.checked = !r2.checked; save(); paintHead(); };
       }
       const c = document.getElementById("rvComment");
@@ -1052,11 +1147,13 @@ function openPresenter(k, startIdx){
         while ((m = re.exec(str))){
           const i = bi++, inp = document.createElement("input");
           inp.className = "pr-blank"; inp.autocomplete = "off"; inp.spellcheck = false;
-          const w = Math.max(m[0].length * cwid, fh * 2.2), left = pt[0] + m.index * cwid, baseFs = fh * 0.92;
+          let w = Math.max(m[0].length * cwid, fh * 2.2), left = pt[0] + m.index * cwid; const baseFs = fh * 0.92;
           Object.assign(inp.style, { left:left + "px", top:(pt[1] - fh * 1.05) + "px", width:w + "px", height:(fh * 1.3) + "px", fontSize:baseFs + "px" });
           inp.value = (sb.b && sb.b[i]) || "";
           inp.classList.toggle("has", !!inp.value);
           // grow to the right as the text gets longer (up to the slide's edge), then shrink the font: never cut a word off
+          // the text layer knows exactly where the underscores are drawn: snap onto them once it is ready
+          inp._place = (l, ww) => { left = l; w = Math.max(ww, fh * 2.2); inp.style.left = left + "px"; fit(); };
           const fit = () => {
             const maxW = Math.max(w, cw - left - 4), pad = 14;
             const tw = textPx(inp.value, inp, baseFs) + pad;
@@ -1069,6 +1166,7 @@ function openPresenter(k, startIdx){
           layer.appendChild(inp); fit();
         }
       });
+      if (tl.querySelector("span")) snapBlanks();
     }).catch(() => {});
     (sb.t || []).forEach((n, i) => addNote(n, i));
   }
@@ -1098,10 +1196,19 @@ function openPresenter(k, startIdx){
     page.getTextContent().then(tc => {
       if (slideAt !== cur) return;
       tlTask = pdfjsLib.renderTextLayer({ textContentSource:tc, container:tl, viewport:vp });
-      return tlTask.promise.then(() => { tl.style.width = canvas.style.width; tl.style.height = canvas.style.height; });
+      return tlTask.promise.then(() => { tl.style.width = canvas.style.width; tl.style.height = canvas.style.height; snapBlanks(); });
     }).catch(() => {});
   }
 
+  function snapBlanks(){
+    const blanks = [...layer.querySelectorAll(".pr-blank")]; if (!blanks.length) return;
+    const box = tl.getBoundingClientRect(), real = [];
+    tl.querySelectorAll("span").forEach(sp => { const tn = sp.firstChild; if (!tn || tn.nodeType !== 3) return;
+      const re = /_{3,}/g; let m;
+      while ((m = re.exec(tn.data))){ const rg = document.createRange(); rg.setStart(tn, m.index); rg.setEnd(tn, m.index + m[0].length); const q = rg.getBoundingClientRect(); real.push([q.left - box.left, q.width]); } });
+    if (real.length !== blanks.length) return;            // something doesn't line up: keep the estimate
+    blanks.forEach((b, j) => { if (b._place && real[j][1] > 4) b._place(real[j][0], real[j][1]); });
+  }
   /* drawing tools: highlighter, pen, laser, eraser. Strokes live in the slide's board (0–1 coordinates). */
   const ink = el("prInk"), laser = el("prLaser");
   let tool = null, penColor = "#E11D48", stroke = null, erasing = false;
@@ -1398,7 +1505,7 @@ window.TT_lang = () => "uz";
 window.addEventListener("tt-helper-ready", () => { try{ renderChrome(location.hash.replace(/^#\/?/, "").split("?")[0]); }catch(e){} });
 
 /* used by shared/sp1-settings.js */
-window.SP1App = { D, t, esc, I, toast, keyOf, unitByKey, unitName, partName, lessons, quizzes, hwByNum, fmtAgo,
+window.SP1App = { D, t, esc, I, toast, keyOf, keyMap, keyMatches, unitByKey, unitName, partName, lessons, quizzes, hwByNum, fmtAgo,
   members, myClass, openFor, hasFor, openGrantModal, get openAll(){ return openAll; }, viewAnswers, isStaff, get people(){ return people; }, lang: () => settings.lang };
 if (window.SP1Cloud && window.SP1Cloud.user) boot(); else window.addEventListener("sp1:auth", boot);
 })();
