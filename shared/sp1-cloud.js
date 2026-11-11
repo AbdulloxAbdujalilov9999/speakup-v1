@@ -186,7 +186,21 @@ const Cloud = {
   },
   cancelAssignment(uid, id){ return remove(ref(db, `sp1/assignments/${uid}/${id}`)); },
   watchResets(uid, cb){ return onValue(ref(db, "sp1/resets/" + uid), s => cb(s.val() || {}), () => cb({})); },
-  queueReset(uid, hw){ return set(push(ref(db, "sp1/resets/" + uid)), { hw: Number(hw), by: this.uid, byName: (this.profile && this.profile.name) || "", at: Date.now() }); },
+  queueReset(uid, hw){   // a reset also drops the teacher's corrections on that homework
+    const u = {};
+    u[`sp1/resets/${uid}/${push(ref(db, "sp1/resets/" + uid)).key}`] = { hw: Number(hw), by: this.uid, byName: (this.profile && this.profile.name) || "", at: Date.now() };
+    u[`sp1/reviews/${uid}/${Number(hw)}`] = null;
+    return update(ref(db), u);
+  },
+  /* ---- teacher corrections ----
+   * sp1/reviews/{uid}/{hw}: {fix:{i3:"text"}, marks:{i3:1|0}, comment, checked, by, byName, at}
+   * The student's own answers stay untouched in sp1/progress; only staff may write here. */
+  watchReview(uid, hw, cb){ return onValue(ref(db, `sp1/reviews/${uid}/${hw}`), s => cb(s.val()), () => cb(null)); },
+  watchMyReviews(cb){ return onValue(ref(db, "sp1/reviews/" + this.uid), s => cb(s.val() || {}), () => cb({})); },
+  saveReview(uid, hw, r){
+    const v = r ? Object.assign({}, r, { by: this.uid, byName: (this.profile && this.profile.name) || "", at: Date.now() }) : null;
+    return set(ref(db, `sp1/reviews/${uid}/${hw}`), v);
+  },
   doneReset(id){ return remove(ref(db, `sp1/resets/${this.uid}/${id}`)); },
   watchMyAccess(cb){ return onValue(ref(db, "sp1/access/" + this.uid), s => cb(s.val() || {}), () => cb({})); },
   setAccess(uids, key, on){

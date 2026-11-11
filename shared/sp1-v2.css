@@ -1,5 +1,6 @@
 /* v2: editable slides, accounts, student answers */
-.pr-layer{ position:absolute; z-index:1; }
+.pr-layer{ position:absolute; z-index:4; pointer-events:none; }
+.pr-layer > *, .pr-layer.texting{ pointer-events:auto; }
 .pr-layer.texting{ cursor:crosshair; outline:2px dashed rgba(255,107,74,0.7); outline-offset:2px; }
 .pr-blank{
   position:absolute; box-sizing:border-box; border:none; border-bottom:2px dashed #FF6B4A; border-radius:4px 4px 0 0;
@@ -17,7 +18,7 @@
 .pr-note:focus{ border-color:#FF6B4A; background:#fff; }
 .student-picker{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:14px 18px; }
 .student-picker select{ flex:1; min-width:200px; max-width:420px; min-height:44px; padding:8px 12px; }
-.hw-sheet.readonly input.blank{ background:#EAF7F5; border-bottom-color:#1FB5A6; color:#127A70; font-weight:600; }
+
 #signOutBtn{ white-space:nowrap; flex-wrap:nowrap; }
 .topbar .who{ max-width:10ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:bottom; }
 @media (max-width:760px){ #signOutBtn .who{ display:none; } }
@@ -63,3 +64,62 @@
 .stat-row{ display:flex; flex-wrap:wrap; gap:12px; margin:14px 0; }
 .stat-row .stat-tile{ flex:1 1 140px; }
 .panel .stat-tile{ background:transparent; border:1px solid var(--line); }
+
+/* ---- homework blanks grow with the text ---- */
+.hw-sheet .blank{
+  font:inherit; font-size:0.95rem; border:none; border-bottom:2px solid #B9B0D6; background:#F7F5FC; color:#2E2364;
+  padding:1px 6px; margin:2px 2px; border-radius:4px 4px 0 0; max-width:100%; box-sizing:border-box; vertical-align:baseline;
+}
+.hw-sheet textarea.blank{ resize:none; overflow:hidden; line-height:1.45; white-space:pre-wrap; overflow-wrap:anywhere; font-family:inherit; }
+.hw-sheet textarea.blank.short{ display:inline-block; min-width:4.5em; width:calc(var(--sz, 8) * 0.6ch + 14px); height:1.9em; vertical-align:middle; }
+.hw-sheet textarea.blank.long{ display:block; width:100%; min-height:2em; margin:4px 0; }
+.hw-sheet .blank:focus{ outline:none; border-bottom-color:#5416B5; background:#EFE8FB; }
+.hw-sheet .blank[readonly]{ cursor:default; }
+@media (max-width:640px){ .hw-sheet .blank{ font-size:16px; } }   /* no zoom-on-focus on phones */
+
+/* ---- teacher corrections ---- */
+.hw-rv{ display:inline-flex; align-items:center; gap:4px; margin:0 6px 0 2px; vertical-align:middle; flex-wrap:wrap; }
+textarea.blank.long + .hw-rv{ display:flex; margin:0 0 6px; }
+.hw-orig{ color:#D92D20; text-decoration:line-through; text-decoration-thickness:2px; font-size:.88rem; }
+.hw-fix{ color:#0E8A4A; font-weight:700; background:#E6F7EE; border-radius:4px; padding:1px 6px; white-space:pre-wrap; }
+.hw-mark{ min-width:26px; height:26px; border-radius:7px; border:1.5px solid #D9D3EA; background:#fff; color:#8A84A3; font-weight:800; font-size:.85rem; line-height:1; display:inline-grid; place-items:center; padding:0; cursor:pointer; }
+span.hw-mark{ cursor:default; }
+.hw-mark.ok.on{ background:#12B76A; border-color:#12B76A; color:#fff; }
+.hw-mark.bad.on{ background:#F04438; border-color:#F04438; color:#fff; }
+.hw-sheet.reviewing .blank.fixed{ color:#0E8A4A; border-bottom-color:#12B76A; background:#E6F7EE; font-weight:700; }
+.hw-sheet .blank.wrong{ color:#D92D20; text-decoration:line-through; text-decoration-thickness:2px; border-bottom-color:#F04438; background:#FEF0EF; }
+.hw-sheet .blank.right{ border-bottom-color:#12B76A; background:#E6F7EE; }
+.review-panel{ border-left:4px solid #12B76A; }
+.review-panel h2{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.rv-score{ font-size:1.05rem; white-space:nowrap; }
+.rv-score b{ font-family:var(--font-mono); font-size:1.5rem; color:#12B76A; }
+.rv-comment{ width:100%; resize:vertical; min-height:60px; }
+.rv-comment-view{ background:var(--surface-2); border-radius:10px; padding:10px 12px; white-space:pre-wrap; }
+@media print{ .hw-rv button{ display:none; } }
+
+/* ---- presenter: selectable text, drawing tools ---- */
+.pr-text.textLayer{ position:absolute; z-index:2; overflow:hidden; line-height:1; text-align:initial; -webkit-text-size-adjust:none; text-size-adjust:none; forced-color-adjust:none; transform-origin:0 0; }
+.pr-text.textLayer span, .pr-text.textLayer br{ color:transparent; position:absolute; white-space:pre; cursor:text; transform-origin:0% 0%; }
+.pr-text.textLayer ::selection{ background:rgba(84,22,181,0.32); }
+.pr-text.textLayer .markedContent{ top:0; height:0; }
+.pr-stage canvas.pr-ink{ position:absolute; z-index:3; pointer-events:none; background:transparent; box-shadow:none; border-radius:0; max-width:none; max-height:none; }
+.pr-stage.tool-pen canvas.pr-ink, .pr-stage.tool-eraser canvas.pr-ink{ pointer-events:auto; touch-action:none; }
+.pr-stage.tool-pen canvas.pr-ink{ cursor:crosshair; }
+.pr-stage.tool-eraser canvas.pr-ink{ cursor:cell; }
+.pr-stage.tool-hl .textLayer span{ cursor:text; }
+.pr-stage.tool-hl .textLayer ::selection{ background:rgba(255,214,0,0.55); }
+.pr-stage.tool-laser, .pr-stage.tool-laser *{ cursor:none !important; }
+.pr-laser{ position:absolute; left:-9px; top:-9px; width:18px; height:18px; border-radius:50%; z-index:5; pointer-events:none;
+  background:radial-gradient(circle, #fff 0 18%, #FF2D2D 28% 55%, rgba(255,45,45,0.25) 70%, transparent 72%); box-shadow:0 0 14px 4px rgba(255,45,45,0.55); }
+.pr-laser[hidden]{ display:none; }
+.pr-end{ z-index:6; }
+.pr-colors{ display:inline-flex; gap:6px; align-items:center; padding:0 4px; }
+.pr-colors[hidden]{ display:none; }
+.pr-colors button{ width:24px; height:24px; border-radius:50%; border:2px solid rgba(255,255,255,0.35); padding:0; cursor:pointer; }
+.pr-colors button.on{ border-color:#fff; box-shadow:0 0 0 2px rgba(255,255,255,0.35); }
+.pr-blank{ z-index:1; }
+.pr-blank:focus{ z-index:2; }
+
+@media print{ .hw-sheet .blank{ background:none; } }
+.hw-key{ display:inline-flex; align-items:center; gap:3px; height:26px; padding:0 8px; border-radius:7px; border:1.5px dashed #B9B0D6; background:#FBFAFE; color:#5416B5; font-size:.8rem; font-weight:600; cursor:pointer; }
+.hw-key:hover{ background:#EFE8FB; }
