@@ -37,6 +37,7 @@ const isStaff = () => !!(Cloud() && Cloud().isStaff);
 let access = {};          // this student's opened lessons {unitKey: {at, by}} (their own + the ones open for everyone)
 let myAccess = {}, openAll = {};   // sp1/access/{uid} and sp1/open (lessons opened for every student, new ones too)
 let people = null;        // staff: { users, progress, access } (live)
+let peopleReady = false;  // the first copy of the student list has arrived
 const hasAccess = k => isStaff() || !!access[k];
 const hwOpen = n => hasAccess("lesson-" + n) || Object.values(assignments || {}).some(a => String(a.hw) === String(n));
 const openedKeys = () => Object.keys(access).sort((a, b) => ((access[a] && access[a].at) || 0) - ((access[b] && access[b].at) || 0));
@@ -69,6 +70,13 @@ function syncHomework(n){
     Cloud().saveHomework(n, { inputs:progress.hwInputs[n] || [], checks:progress.hwChecks[n] || [], done:progress.hwDone[n] || null, at:progress.hwAt[n] });
   }, 700);
 }
+/* staff: lessons taught + last slide → cloud, so every device shows the same progress (debounced) */
+let teachTimer = null;
+function syncTeach(){
+  progress.teachAt = Date.now(); saveProgress();
+  clearTimeout(teachTimer);
+  teachTimer = setTimeout(() => { if (Cloud() && isStaff()) Cloud().saveBoard("_teach", { taught:progress.taught, lastSlide:progress.lastSlide, at:progress.teachAt }); }, 900);
+}
 /* slide boards → cloud (debounced per lesson) */
 const boardTimers = {};
 function syncBoard(k){
@@ -95,6 +103,8 @@ function onPeople(){
   updateBadge();
   if (parts[0] === "settings" && window.SP1Settings) window.SP1Settings.refresh();
   else if (parts[0] === "u" && !P) refreshAccessBar(parts[1]);
+  else if (parts[0] === "student" && document.getElementById("stuWait")) route_();   // opened (or refreshed) before the student list arrived
+  else if (parts[0] === "hw") fillStudentPicker();
   else if (parts[0] === "lessons") document.querySelectorAll("[data-open-chip]").forEach(el => { const k = el.dataset.openChip, n = openFor(k).length; el.textContent = openAll[k] ? t("openToAll") : n ? `${t("openFor")} ${n}` : ""; el.hidden = !n && !openAll[k]; });
 }
 function updateBadge(){
@@ -123,7 +133,8 @@ async function initUser(){
   });
   if (isStaff()){
     people = { users:{}, progress:{}, access:{} };
-    peopleOff = C.watchPeople(st => { people = st; onPeople(); });
+    peopleReady = false;
+    peopleOff = C.watchPeople(st => { people = st; peopleReady = true; onPeople(); });
   } else {
     await new Promise(res => {
       let first = true;
@@ -179,6 +190,14 @@ async function initUser(){
     });
     if (isStaff()){
       const boards = await C.loadBoards();
+      const tb = boards._teach; delete boards._teach;
+      if (tb && progress.teachAt && (tb.at || 0) > progress.teachAt){
+        progress.taught = tb.taught || {}; progress.lastSlide = tb.lastSlide || {}; progress.teachAt = tb.at;
+      } else if (tb && !progress.teachAt){   // first time on this device: keep what both sides know
+        progress.taught = Object.assign({}, progress.taught, tb.taught || {}); progress.lastSlide = Object.assign({}, progress.lastSlide, tb.lastSlide || {});
+        progress.teachAt = tb.at || 1; if (Object.keys(progress.taught).length !== Object.keys(tb.taught || {}).length) syncTeach();
+      } else if (!tb && (Object.keys(progress.taught).length || Object.keys(progress.lastSlide).length)) syncTeach();
+      else if (tb && (tb.at || 0) < progress.teachAt) syncTeach();
       Object.keys(boards).forEach(k => { if (!progress.boards[k] || (boards[k].at || 0) > (progress.boards[k].at || 0)) progress.boards[k] = boards[k]; });
     }
     saveProgress();
@@ -233,6 +252,7 @@ const T = {
   toolHl:["Marker","Highlighter"], toolPen:["Qalam","Pen"], toolLaser:["Lazer","Laser"], toolEraser:["Oʻchirgich","Eraser"], clearInk:["Chizmalarni tozalash","Clear drawings"],
   hlHint:["Soʻzlar ustidan sudrang — ular sariq boʻladi","Drag over words to mark them yellow"],
   textTool:["Matn qoʻshish","Add text"], clearSlide:["Slaydni tozalash","Clear slide"],
+  clearSlideAsk:["Shu slayddagi barcha yozuv va chizmalar oʻchirilsinmi?","Delete everything typed and drawn on this slide?"],
   editHint:["Boʻsh joylarga bosing va javob yozing. «Matn qoʻshish» bilan slaydning istalgan joyiga yozing.","Click a blank to type the answer. Use “Add text” to write anywhere on the slide."],
   clickToPlace:["Slaydda matn qoʻyiladigan joyni bosing","Click on the slide where the text should go"],
   studentAccount:["Oʻquvchi","Student"], refresh:["Yangilash","Refresh"],
@@ -300,7 +320,7 @@ const I = (name, size) => {
     eye:'<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
     user:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0116 0"/>', board:'<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20l4-4 4 4"/>',
     clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', moon:'<path d="M20 15A8 8 0 019 4a8 8 0 1011 11z"/>',
-    skip:'<path d="M5 5l8 7-8 7zM15 5v14"/>',
+    skip:'<path d="M5 5l8 7-8 7zM15 5v14"/>', reset:'<path d="M3 12a9 9 0 109-9 9.7 9.7 0 00-6.7 2.8L3 8"/><path d="M3 3v5h5"/>',
     gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/>',
     chat:'<path d="M21 12a8 8 0 01-11.6 7.1L4 20l1-4.6A8 8 0 1121 12z"/>', lock:'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/>',
     unlock:'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 017.5-2"/>'
@@ -432,7 +452,7 @@ function viewHome(){
       <div class="upnext-badge"><small>${nb[0]}</small><b>${nb[1]}</b></div>
       <div class="upnext-text"><p class="upnext-label">${t("upNext")}</p><h2>${esc(next.title)}</h2>
         <p class="upnext-meta">${esc(unitName(next))} · ${partName(next.part)} · ${next.slides.length} ${t("slides")}</p></div>
-      ${isStaff() ? `<a class="btn btn-accent" href="#/present/${keyOf(next)}">${I("play", 18)}${t("startLesson")}</a>` : `<a class="btn btn-accent" href="#/u/${keyOf(next)}">${t("openLesson")}</a>`}
+      ${isStaff() ? `<a class="btn btn-accent" href="#/present/${keyOf(next)}/0?start=1">${I("play", 18)}${t("startLesson")}</a>` : `<a class="btn btn-accent" href="#/u/${keyOf(next)}">${t("openLesson")}</a>`}
     </div>` : `<div class="upnext"><div class="upnext-text"><h2>${t("allTaught")}</h2></div></div>`}
     <div class="hero-stats">
       <div class="stat-tile"><span class="stat-ico">${I("board", 18)}</span><span class="stat-num">${taughtN}<span class="stat-den">/${lessons.length}</span></span><span class="stat-label">${t("lessonsTaught")}</span></div>
@@ -591,7 +611,7 @@ function viewUnit(k){
     <h1>${esc(u.title)}</h1>
     ${u.objectives && u.objectives.length ? `${objTitle ? `<strong>${objTitle}:</strong>` : ""}<ul class="objectives">${u.objectives.slice(0, 8).map(o => `<li>${esc(o)}</li>`).join("")}</ul>` : ""}
     <div class="hero-actions">
-      <a class="btn btn-accent btn-lg" href="#/present/${k}/0">${I("play", 18)}${!isStaff() ? t("viewSlides") : u.type === "quiz" ? t("present") : t("startLesson")}</a>
+      <a class="btn btn-accent btn-lg" href="#/present/${k}/0${isStaff() ? "?start=1" : ""}">${I("play", 18)}${!isStaff() ? t("viewSlides") : u.type === "quiz" ? t("present") : t("startLesson")}</a>
       ${last > 0 && isStaff() ? `<a class="btn btn-ghost" href="#/present/${k}/${last}">${t("continueFrom")} · ${last + 1}/${u.slides.length}</a>` : ""}
       ${isStaff() && (u.type === "lesson" || u.type === "quiz") ? `<button class="btn btn-ghost" id="taughtBtn">${I("check", 18)}${done ? t("taught") + " ✓" : t("markTaught")}</button>` : ""}
     </div>
@@ -628,7 +648,7 @@ function viewUnit(k){
 function toggleTaught(k, force){
   const on = force === undefined ? !progress.taught[k] : force;
   if (on) progress.taught[k] = Date.now(); else delete progress.taught[k];
-  saveProgress();
+  syncTeach();
 }
 
 function viewHomeworks(){
@@ -662,7 +682,19 @@ function viewHomeworks(){
 }
 
 let hwWatch = null;
-async function getStudents(){ return isStaff() ? members() : []; }
+/* staff homework page: "Answers of" dropdown; refilled when the student list arrives or changes */
+function fillStudentPicker(){
+  const ss = document.getElementById("stuSel"); if (!ss || !isStaff()) return;
+  const m = location.hash.match(/^#\/hw\/(\d+)(?:\?(.*))?$/); if (!m) return;
+  const n = +m[1], sel = new URLSearchParams(m[2] || "").get("s") || "";
+  const opts = [`<option value="">${esc(t("mine"))}</option>`].concat(members().map(s => {
+    const f = (s.sp1.hwInputs[n] || []).filter(x => x).length;
+    return `<option value="${esc(s.uid)}">${esc((s.name || s.email) + (s.sp1.hwDone[n] ? " ✓" : f ? ` (${f})` : ""))}</option>`;
+  })).join("");
+  if (ss.innerHTML === opts && ss.value === sel) return;
+  if (document.activeElement === ss) return;   // don't rebuild an open dropdown
+  ss.innerHTML = opts; ss.value = sel;
+}
 function stopHwWatch(){ if (hwWatch){ hwWatch(); hwWatch = null; } }
 
 /* ---- homework blanks: grow with the text; long writing lines are full-width auto-growing boxes ---- */
@@ -843,15 +875,7 @@ function viewHomework(n, query){
 
   if (isStaff()){
     const ss = document.getElementById("stuSel");
-    getStudents().then(list => {
-      list.forEach(s => {
-        const o = document.createElement("option"); o.value = s.uid;
-        const f = (s.sp1.hwInputs[n] || []).filter(x => x).length;
-        o.textContent = (s.name || s.email) + (s.sp1.hwDone[n] ? " ✓" : f ? ` (${f})` : "");
-        ss.appendChild(o);
-      });
-      ss.value = sel;
-    }).catch(e => console.warn(e));
+    fillStudentPicker();
     ss.onchange = () => { location.hash = "#/hw/" + n + (ss.value ? "?s=" + encodeURIComponent(ss.value) : ""); };
   }
   if (sel){
@@ -860,11 +884,16 @@ function viewHomework(n, query){
     const st = document.getElementById("stuState");
     let orig = [], rv = null, saveT = null;
     const km = keyMap(sheet, n);
+    // the Name / Class / Date boxes above the first exercise aren't answers: no ✓/✗, not counted
+    const firstH = sheet.querySelector(".hw-h");
+    const meta = inputs.map(el => !!firstH && !!(firstH.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING));
+    const nAns = meta.filter(x => !x).length;
     // the key's answer in the form the blank needs ("an egg" before "egg" → "an")
     const keyShort = k => { const e = k.key[0], next = (k.after || "").trim().split(/\s+/)[0] || "";
       return next && normAns(e).endsWith(" " + normAns(next)) ? e.slice(0, e.length - next.length).trim().replace(/[\s–-]+$/, "") : e.replace(/^([A-Z]) – .*$/, "$1"); };
-    const R = () => (rv = rv || { fix:{}, marks:{}, comment:"", checked:true });
+    const R = () => (rv = rv || { fix:{}, marks:{}, comment:"", checked:false });
     const save = () => { clearTimeout(saveT); saveT = setTimeout(() => {
+      saveT = null;   // nothing pending: take changes made elsewhere (Progress page, another device) again
       const r = R(); const empty = !Object.keys(r.fix || {}).length && !Object.keys(r.marks || {}).length && !(r.comment || "").trim();
       Cloud().saveReview(sel, n, empty && !r.checked ? null : r).then(() => { const sv = document.getElementById("rvSaved"); if (sv){ sv.hidden = false; clearTimeout(sv._t); sv._t = setTimeout(() => sv.hidden = true, 1500); } }).catch(e => alert(e.message || e));
     }, 600); };
@@ -874,18 +903,18 @@ function viewHomework(n, query){
         const r = R(); r.fix = r.fix || {}; r.marks = r.marks || {};
         if (el.value === (orig[i] || "")) delete r.fix["i" + i];
         else { r.fix["i" + i] = el.value; if (r.marks["i" + i] == null) r.marks["i" + i] = 0; }
-        r.checked = true; paint(); save();
+        paint(); save();
       });
     });
     sheet.addEventListener("click", e => {
       const kb = e.target.closest("[data-key-i]");
       if (kb){ e.preventDefault(); const i = +kb.dataset.keyI, r = R(); r.fix = r.fix || {}; r.marks = r.marks || {};
-        r.fix["i" + i] = keyShort(km[i]); r.marks["i" + i] = 0; r.checked = true; paint(); save(); return; }
+        r.fix["i" + i] = keyShort(km[i]); r.marks["i" + i] = 0; paint(); save(); return; }
       const b = e.target.closest("[data-mark]"); if (!b) return;
       e.preventDefault();
       const r = R(), key = "i" + b.dataset.i, v = +b.dataset.mark; r.marks = r.marks || {};
       if (r.marks[key] === v) delete r.marks[key]; else r.marks[key] = v;
-      r.checked = true; paint(); save();
+      paint(); save();
     });
     function paint(){
       const r = rv || {}, fix = r.fix || {}, marks = r.marks || {};
@@ -894,8 +923,8 @@ function viewHomework(n, query){
         if (document.activeElement !== el) el.value = has ? f : (orig[i] || "");
         el.classList.toggle("fixed", has); fitBlank(el);
         const m = marks["i" + i];
-        const answered = !!(orig[i] || "").trim() || has || m != null;
-        const k = km[i], miss = k && (orig[i] || "").trim() && !has && !keyMatches(k, orig[i]);
+        const answered = !meta[i] && (!!(orig[i] || "").trim() || has || m != null);
+        const k = km[i], miss = !meta[i] && k && (orig[i] || "").trim() && !has && !keyMatches(k, orig[i]);
         sheet.querySelector(`[data-rv="${i}"]`).innerHTML = (has ? `<s class="hw-orig" title="${t("answersOf")}">${esc(orig[i] || "—")}</s>` : "") + (!answered ? "" :
           `<button class="hw-mark ok${m === 1 ? " on" : ""}" data-mark="1" data-i="${i}" title="✓">✓</button><button class="hw-mark bad${m === 0 ? " on" : ""}" data-mark="0" data-i="${i}" title="✗">✗</button>`) + (miss ? `<button class="hw-key" data-key-i="${i}" title="${t("useKey")}">${I("key", 12)} ${esc(keyShort(k))}</button>` : "");
       });
@@ -909,12 +938,12 @@ function viewHomework(n, query){
           <textarea class="auth-input rv-comment" id="rvComment" rows="2" maxlength="600" placeholder="${t("commentPh")}"></textarea>
           <div class="toolbar" style="margin-top:10px"><button class="btn btn-sm btn-accent" id="rvAuto">${I("key", 16)}${t("autoMark")}</button><button class="btn btn-sm" id="rvCheck"></button></div>`;
         const c = document.getElementById("rvComment");
-        c.addEventListener("input", () => { const r2 = R(); r2.comment = c.value; r2.checked = true; save(); paintHead(); });
+        c.addEventListener("input", () => { const r2 = R(); r2.comment = c.value; save(); paintHead(); });
         document.getElementById("rvAuto").onclick = () => {
           const r2 = R(); r2.marks = r2.marks || {}; r2.fix = r2.fix || {}; let ok = 0, bad = 0;
-          km.forEach((k, i) => { if (!k || !(orig[i] || "").trim() || r2.fix["i" + i] != null) return;
+          km.forEach((k, i) => { if (!k || meta[i] || !(orig[i] || "").trim() || r2.fix["i" + i] != null) return;
             if (keyMatches(k, orig[i])){ r2.marks["i" + i] = 1; ok++; } else bad++; });
-          r2.checked = true; paint(); save();
+          paint(); save();
           toast(`${ok} ✓ · ${bad} ${t("toReview")}`);
         };
         document.getElementById("rvCheck").onclick = () => { const was = !!(rv && rv.checked), r2 = R(); r2.checked = !was; save(); paintHead(); };
@@ -936,10 +965,10 @@ function viewHomework(n, query){
     let lastP = null;
     function paintStatus(){   // a homework the teacher marked as finished counts as done, however much is filled
       if (!lastP) return;
-      const p = lastP, f = (p.hwInputs[n] || []).filter(x => x).length, done = p.hwDone[n] || (rv && rv.checked);
+      const p = lastP, f = (p.hwInputs[n] || []).filter((x, i) => x && !meta[i]).length, done = p.hwDone[n] || (rv && rv.checked);
       st.hidden = false;
       st.className = "chip" + (done ? " ok" : f ? " accent" : "");
-      st.textContent = done ? `${t("done")}${f < inputs.length ? ` · ${f}/${inputs.length} ${t("filled")}` : ""}` : f ? `${t("inProgress")} · ${f}/${inputs.length} ${t("filled")}` : t("notStarted");
+      st.textContent = done ? `${t("done")}${f < nAns ? ` · ${f}/${nAns} ${t("filled")}` : ""}` : f ? `${t("inProgress")} · ${f}/${nAns} ${t("filled")}` : t("notStarted");
     }
     const offP = Cloud().watchStudent(sel, p => {
       orig = p.hwInputs[n] || [];
@@ -994,7 +1023,10 @@ async function viewStudent(uid){
   if (!isStaff()) return notFound();
   $app.innerHTML = `<section class="panel"><p class="panel-sub">${t("loading")}</p></section>`;
   const s = members().find(x => x.uid === uid) || (people && people.users[uid] ? Object.assign({ uid }, people.users[uid]) : null);
-  if (!s) return notFound();
+  if (!s){
+    if (!peopleReady){ $app.innerHTML = `<section class="panel" id="stuWait"><p class="panel-sub">${t("loading")}</p></section>`; return; }
+    return notFound();
+  }
   const draw = p => {
     if (!location.hash.startsWith("#/student/")) return;
     $app.innerHTML = `
@@ -1093,13 +1125,13 @@ function lazyThumbs(){
 
 /* ---------------- Presenter (teacher holds the lesson) ---------------- */
 let P = null;
-function openPresenter(k, startIdx){
+function openPresenter(k, startIdx, starting){
   const u = unitByKey(k);
   if (!u) return notFound();
   if (!hasAccess(k)) return;
   if (P && P.key === k){ P.go(startIdx, true); return; }
   closePresenter(true);
-  autoGrant(k);
+  if (starting) autoGrant(k);   // only "Start lesson" opens it for the class; looking at a slide doesn't
   const staff = isStaff();
   const idx = D.units.indexOf(u), next = D.units[idx + 1];
   document.body.style.overflow = "hidden";
@@ -1128,7 +1160,7 @@ function openPresenter(k, startIdx){
         <button class="pr-btn pr-tool" data-tool="eraser" title="${t("toolEraser")} (E)">${I("eraser", 18)}</button>
         <button class="pr-btn" id="prInkClear" title="${t("clearInk")}">${I("trash", 18)}</button>
         <button class="pr-btn" id="prText" title="${t("textTool")} (T)">${I("pencil", 18)}<span class="lbl">${t("textTool")}</span></button>
-        <button class="pr-btn" id="prClear" title="${t("clearSlide")}">${I("x", 18)}<span class="lbl">${t("clearSlide")}</span></button>
+        <button class="pr-btn" id="prClear" title="${t("clearSlide")}">${I("reset", 18)}<span class="lbl">${t("clearSlide")}</span></button>
         <button class="pr-btn${settings.skipAnswers ? " on" : ""}" id="prSkip" title="${t("hideAnswers")}">${I("skip", 18)}<span class="lbl">${t("hideAnswers")}</span></button>
       </div>
     </div>
@@ -1381,9 +1413,13 @@ function openPresenter(k, startIdx){
   function go(i, absolute){
     if (ended){ ended = false; stage.querySelector(".pr-end")?.remove(); if (!absolute){ i = cur; } }
     i = Math.max(0, Math.min(u.slides.length - 1, i));
-    if (!staff) while (i < u.slides.length - 1 && !visible(i)) i++;
+    if (!staff && !visible(i)){   // students never land on an answer slide: next visible one, else the previous one
+      let j = i; while (j < u.slides.length && !visible(j)) j++;
+      if (j >= u.slides.length){ j = i; while (j > 0 && !visible(j)) j--; }
+      i = j;
+    }
     if (i === cur && canvas.width) { update(); return; }
-    cur = i; progress.lastSlide[k] = cur; saveProgress();
+    cur = i; progress.lastSlide[k] = cur; if (staff) syncTeach(); else saveProgress();
     history.replaceState(null, "", "#/present/" + k + "/" + cur);
     draw(); update();
   }
@@ -1404,7 +1440,7 @@ function openPresenter(k, startIdx){
     if (["ArrowRight", "PageDown", " ", "Enter"].includes(e.key)){ e.preventDefault(); step(1); }
     else if (["ArrowLeft", "PageUp", "Backspace"].includes(e.key)){ e.preventDefault(); step(-1); }
     else if (e.key === "Home"){ go(0, true); }
-    else if (e.key === "End"){ go(u.slides.length - 1, true); }
+    else if (e.key === "End"){ let j = u.slides.length - 1; while (j > 0 && !visible(j)) j--; go(j, true); }
     else if (e.key === "f" || e.key === "F"){ fullscreen(); }
     else if (e.key === "o" || e.key === "O"){ el("prOutline").click(); }
     else if ((e.key === "t" || e.key === "T") && staff){ el("prText").click(); }
@@ -1419,7 +1455,12 @@ function openPresenter(k, startIdx){
     if (Math.abs(dx) > 40) step(dx < 0 ? 1 : -1);
   });
   el("prText").onclick = () => { if (tool) setTool(tool); textMode = !textMode; el("prText").classList.toggle("on", textMode); layer.classList.toggle("texting", textMode); if (textMode) toast(t("clickToPlace")); };
-  el("prClear").onclick = () => { const b = board(); delete b.s[cur]; touch(); rebuild(); };
+  el("prClear").onclick = () => {
+    const b = board(), sb = b.s[cur];
+    if (!sb) return;
+    if (!confirm(t("clearSlideAsk"))) return;
+    delete b.s[cur]; touch(); rebuild();
+  };
   el("prPrev").onclick = () => step(-1);
   el("prNext").onclick = () => step(1);
   el("prClose").onclick = () => closePresenter();
@@ -1451,7 +1492,7 @@ function route_(){
     renderChrome("u/");
     if (!hasAccess(parts[1])){ closePresenter(true); return lockedView(); }
     if (!$app.innerHTML || !P) viewUnit(parts[1]);
-    openPresenter(parts[1], +(parts[2] || 0));
+    openPresenter(parts[1], +(parts[2] || 0), new URLSearchParams(query || "").get("start") === "1");
     return;
   }
   closePresenter(true);

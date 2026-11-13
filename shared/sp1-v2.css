@@ -196,3 +196,19 @@ span.hw-mark{ cursor:default; }
   .navbtn{ white-space:nowrap; padding:8px 9px; font-size:.86rem; }
   .navbtn .nav-icon{ display:none; }
 }
+
+/* phones: the logo text ran under the sign-out button below ~420px; keep just the S logo there */
+@media (max-width:420px){ .brand-text{ display:none; } }
+/* presenter on a phone held upright: one top row (Close stays on it), tools in one swipeable row */
+@media (max-width:640px){
+  .pr-top{ flex-wrap:nowrap; padding:8px 10px; gap:8px; }
+  .pr-title{ flex:1 1 auto; font-size:.95rem; }
+  .pr-top .pr-group{ flex-wrap:nowrap; flex-shrink:0; gap:6px; }
+  .pr-top .pr-btn, .pr-bottom .pr-btn{ min-height:38px; padding:6px 10px; }
+  .pr-bottom{ padding:8px 10px; gap:8px; }
+  .pr-bottom > .pr-group{ width:100%; flex-wrap:nowrap; justify-content:center; }
+  .pr-bottom > .pr-group + .pr-group{ justify-content:flex-start; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+  .pr-bottom > .pr-group + .pr-group::-webkit-scrollbar{ display:none; }
+  .pr-bottom .pr-btn{ flex-shrink:0; }
+}
+@media (max-width:380px){ .pr-timer{ display:none; } }
