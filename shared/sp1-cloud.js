@@ -280,6 +280,7 @@ const Cloud = {
     const x = {
       [`users/${uid}`]: null, [`progress/${uid}`]: null, [`resets/${uid}`]: null, [`assignments/${uid}`]: null,
       [`sp1/progress/${uid}`]: null, [`sp1/access/${uid}`]: null,
+      [`sp1/reviews/${uid}`]: null, [`sp1/assignments/${uid}`]: null, [`sp1/resets/${uid}`]: null,
     };
     if (u.role === "student" && u.teacherId) x[`teacherStudents/${u.teacherId}/${uid}`] = null;
     if (u.role === "teacher"){
@@ -311,7 +312,8 @@ const Cloud = {
     const u = {};
     if (role === "student" && teacherId){ profile.teacherId = teacherId; u[`teacherStudents/${teacherId}/${uid}`] = true; }
     u[`users/${uid}`] = profile;
-    if (role === "student") u[`sp1/progress/${uid}/name`] = name;   // shows up as a SpeakUp-1 student straight away
+    // (no sp1/progress write here: the rules only let a student write their own, so it would fail the whole save;
+    //  their first sign-in creates it)
     await update(ref(db), u);
     return uid;
   },
@@ -350,8 +352,10 @@ onAuthStateChanged(auth, async user => {
     unsubMe = onValue(ref(db, "users/" + user.uid), s => {
       const p = s.val(); if (!p) return;
       const roleChanged = Cloud.profile && (Cloud.profile.role !== p.role || Cloud.profile.status !== p.status);
+      const wasBlocked = Cloud.profile && Cloud.profile.status === "restricted";
       Cloud.profile = p; setSU(p);
       if (p.status === "restricted") return renderBlocked();
+      if (wasBlocked) return location.reload();   // let back in while the blocked screen was showing
       if (roleChanged && window.SP1_refresh) window.SP1_refresh();
     });
     if (current !== user.uid){

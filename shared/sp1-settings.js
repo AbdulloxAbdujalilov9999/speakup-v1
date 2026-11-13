@@ -363,12 +363,13 @@ function drawCalendar(el){
   }
   const list = Object.keys(events).map(id => Object.assign({ id }, events[id])).sort((a, b) => (a.startAt || 0) - (b.startAt || 0));
   const groups = [];
-  list.forEach(ev => { const d = new Date(ev.startAt || Date.now()).toDateString(); let g = groups.find(x => x.d === d); if (!g) groups.push(g = { d, evs: [] }); g.evs.push(ev); });
+  const loc = A().lang() === "en" ? "en-GB" : "uz-Latn-UZ";
+  list.forEach(ev => { const d = new Date(ev.startAt || Date.now()).toLocaleDateString(loc, { weekday: "long", day: "numeric", month: "long", year: "numeric" }); let g = groups.find(x => x.d === d); if (!g) groups.push(g = { d, evs: [] }); g.evs.push(ev); });
   el.innerHTML = `<section class="panel"><div class="panel-head-row"><div><h2>${L("Taqvim", "Calendar")}</h2><p class="panel-sub">${L("Rejalashtirilgan darslar (SpeakUp bilan umumiy).", "Scheduled lessons (shared with SpeakUp).")}</p></div>
     ${C().isManager ? `<select class="select" id="calTeacher">${teachers().map(x => `<option value="${x.id}" ${x.id === tid ? "selected" : ""}>${esc(x.name || x.email)}</option>`).join("")}</select>` : ""}
     ${tid ? `<button class="btn btn-accent btn-sm" data-add-event>+ ${L("Dars rejalashtirish", "Schedule lesson")}</button>` : ""}</div>
     ${!tid ? `<p class="panel-sub">${L("Oʻqituvchi tanlanmagan.", "No teacher selected.")}</p>` : groups.length ? groups.map(g => `<div class="cal-group"><h3 class="cal-date">${esc(g.d)}</h3>
-      ${g.evs.map(ev => `<div class="cal-event" data-edit-event="${ev.id}"><div class="cal-event-time">${ev.startAt ? new Date(ev.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}</div>
+      ${g.evs.map(ev => `<div class="cal-event" data-edit-event="${ev.id}"><div class="cal-event-time">${ev.startAt ? new Date(ev.startAt).toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit" }) : ""}</div>
         <div><span class="cal-event-title">${esc(ev.title)}</span>${ev.studentIds && ev.studentIds.length ? `<span class="cal-event-students">${ev.studentIds.map(id => esc(nameOf(id))).join(", ")}</span>` : ""}</div></div>`).join("")}</div>`).join("")
       : `<p class="panel-sub">${L("Rejalashtirilgan dars yoʻq.", "No lessons scheduled.")}</p>`}</section>`;
 }
@@ -425,7 +426,11 @@ function wire(body){
     const u = byId(b.dataset.deleteUser); if (!u) return;
     if (confirm(L(`${u.name || u.email} butunlay oʻchirilsinmi? Buni qaytarib boʻlmaydi.`, `Permanently delete ${u.name || u.email}? This can't be undone.`))) act(() => C().deleteUser(b.dataset.deleteUser, u, people().users), L("Oʻchirildi", "User deleted"));
   });
-  q("[data-role]", s => s.onchange = () => act(() => C().setUserRole(s.dataset.role, s.value, byId(s.dataset.role))));
+  q("[data-role]", s => s.onchange = () => {
+    const u = byId(s.dataset.role) || {};
+    if (!confirm(L(`${u.name || u.email}: rol «${ROLE()[s.value]}» ga oʻzgartirilsinmi?`, `Change ${u.name || u.email}'s role to ${ROLE()[s.value]}?`))){ s.value = u.role; s.blur(); return; }
+    act(() => C().setUserRole(s.dataset.role, s.value, u), L("Rol oʻzgartirildi", "Role changed"));
+  });
   q("[data-teacher]", s => s.onchange = () => act(() => C().reassignTeacher(s.dataset.teacher, s.value, byId(s.dataset.teacher)), L("Oʻqituvchi yangilandi", "Teacher updated")));
   q("[data-reset-pw]", b => b.onclick = () => act(() => C().sendReset(b.dataset.resetPw), L("Havola yuborildi: ", "Reset email sent to ") + b.dataset.resetPw));
   q("[data-grant]", b => b.onclick = e => { e.preventDefault(); A().openGrantModal(b.dataset.grant); });
