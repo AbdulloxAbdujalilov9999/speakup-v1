@@ -95,9 +95,13 @@
         }
       },
       "open": {
-        "$scope": {
-          ".read": "auth != null && ((root.child('users').child(auth.uid).child('status').val() === 'approved' && (root.child('users').child(auth.uid).child('role').val() === 'owner' || root.child('users').child(auth.uid).child('role').val() === 'manager')) || (root.child('users').child(auth.uid).child('centerId').val() != null && root.child('users').child(auth.uid).child('centerId').val() === $scope) || ($scope === '_main' && root.child('users').child(auth.uid).child('centerId').val() == null))",
-          ".write": "auth != null && ((root.child('users').child(auth.uid).child('status').val() === 'approved' && (root.child('users').child(auth.uid).child('role').val() === 'owner' || root.child('users').child(auth.uid).child('role').val() === 'manager')) || (root.child('users').child(auth.uid).child('status').val() === 'approved' && (root.child('users').child(auth.uid).child('role').val() === 'teacher' || root.child('users').child(auth.uid).child('role').val() === 'admin') && ((root.child('users').child(auth.uid).child('centerId').val() != null && root.child('users').child(auth.uid).child('centerId').val() === $scope) || ($scope === '_main' && root.child('users').child(auth.uid).child('centerId').val() == null))))"
+        ".read": "auth != null && ((root.child('users').child(auth.uid).child('status').val() === 'approved' && (root.child('users').child(auth.uid).child('role').val() === 'owner' || root.child('users').child(auth.uid).child('role').val() === 'manager')) || root.child('users').child(auth.uid).child('centerId').val() == null)",
+        ".write": "auth != null && ((root.child('users').child(auth.uid).child('status').val() === 'approved' && (root.child('users').child(auth.uid).child('role').val() === 'owner' || root.child('users').child(auth.uid).child('role').val() === 'manager')) || (root.child('users').child(auth.uid).child('status').val() === 'approved' && root.child('users').child(auth.uid).child('role').val() === 'teacher' && root.child('users').child(auth.uid).child('centerId').val() == null))"
+      },
+      "copen": {
+        "$cid": {
+          ".read": "auth != null && ((root.child('users').child(auth.uid).child('status').val() === 'approved' && (root.child('users').child(auth.uid).child('role').val() === 'owner' || root.child('users').child(auth.uid).child('role').val() === 'manager')) || (root.child('users').child(auth.uid).child('centerId').val() != null && root.child('users').child(auth.uid).child('centerId').val() === $cid))",
+          ".write": "auth != null && ((root.child('users').child(auth.uid).child('status').val() === 'approved' && (root.child('users').child(auth.uid).child('role').val() === 'owner' || root.child('users').child(auth.uid).child('role').val() === 'manager')) || (root.child('users').child(auth.uid).child('status').val() === 'approved' && (root.child('users').child(auth.uid).child('role').val() === 'teacher' || root.child('users').child(auth.uid).child('role').val() === 'admin') && root.child('users').child(auth.uid).child('centerId').val() != null && root.child('users').child(auth.uid).child('centerId').val() === $cid))"
         }
       },
       "access": {

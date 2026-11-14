@@ -197,7 +197,8 @@ async function openSession(user){
   let r;
   try{ r = await fetch("api/session", { method: "POST", headers: { "content-type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ idToken: await user.getIdToken() }) }); }
   catch(e){ return { ok: true, local: true }; }
-  if (r.status === 404 || r.status === 405 || r.status === 501) return { ok: true, local: true };
+  // a plain static host (no server.js) answers 404/405/501 or an HTML page: no protection there, load as before
+  if (r.status === 404 || r.status === 405 || r.status === 501 || !/json/.test(r.headers.get("content-type") || "")) return { ok: true, local: true };
   let j = {}; try{ j = await r.json(); }catch(e){}
   return Object.assign({ ok: r.ok, status: r.status }, j);
 }
@@ -237,8 +238,8 @@ const Cloud = {
   get licence(){ return licenceOf(this.profile, this.center); },
   // the AI teacher costs money per call: off for center accounts unless AI_FOR_CENTERS
   get aiOff(){ return !!this.centerId && !AI_FOR_CENTERS; },
-  // lesson openings, leaderboard and live game are per center ("_main" = the owner's own groups)
-  get scope(){ return this.centerId || "_main"; },
+  // lesson openings, leaderboard and live game: sp1/copen/{center} for a center, sp1/open for the owner's own groups
+  get openPath(){ return this.centerId ? "sp1/copen/" + this.centerId : "sp1/open"; },
   inviteLink(code){ return location.origin + location.pathname + "?invite=" + encodeURIComponent(code); },
   get isStaff(){ const p = this.profile; return !!p && p.status === "approved" && STAFF.includes(p.role); },
   get isManager(){ return isMgr(this.profile); },            // owner or manager
@@ -267,17 +268,17 @@ const Cloud = {
     return update(ref(db, "sp1/progress/" + this.uid), u).catch(e => console.warn("practice sync", e));
   },
   // staff: the class leaderboard (sp1/open/_lb/{uid}) and the live game (sp1/open/_game); every signed-in user reads sp1/open
-  setOpenNode(path, val){ return set(ref(db, `sp1/open/${this.scope}/${path}`), val == null ? null : val); },
+  setOpenNode(path, val){ return set(ref(db, `${this.openPath}/${path}`), val == null ? null : val); },
   async loadBoards(){ return (await get(ref(db, "sp1/boards/" + this.uid))).val() || {}; },
   saveBoard(key, board){ if (this.uid) return set(ref(db, `sp1/boards/${this.uid}/${key}`), board || null).catch(e => console.warn("board", e)); },
   watchStudent(uid, cb){ return onValue(ref(db, "sp1/progress/" + uid), s => cb(normProgress(s.val())), () => cb(normProgress(null))); },
 
   /* ---- lesson access ---- */
   // sp1/open/{unitKey}: opened for every student, including ones who sign up later
-  watchOpenAll(cb){ return onValue(ref(db, "sp1/open/" + this.scope), s => cb(s.val() || {}), () => cb({})); },
+  watchOpenAll(cb){ return onValue(ref(db, this.openPath), s => cb(s.val() || {}), () => cb({})); },
   setOpenAll(keys, on){
     const u = {};
-    [].concat(keys).forEach(k => { u[`sp1/open/${this.scope}/${k}`] = on ? { at: Date.now(), by: this.uid } : null; });
+    [].concat(keys).forEach(k => { u[`${this.openPath}/${k}`] = on ? { at: Date.now(), by: this.uid } : null; });
     return update(ref(db), u);
   },
   setAccessMany(changes){   // [[uid, key, on], ...] in one write

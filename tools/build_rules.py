@@ -84,14 +84,13 @@ ADMIN_WRITE = (
 
 NEW_ROOT = "newData.parent().parent().parent()"   # from a depth-3 node ($a/$b/$c)
 
-def scope_read(scope):
-    # sp1/open/{scope}: a center's lesson openings, leaderboard and live game; "_main" = no center
-    return (f"auth != null && ({MGR} || ({MY_CID} != null && {MY_CID} === {scope})"
-            f" || ({scope} === '_main' && {MY_CID} == null))")
-def scope_write(scope):
-    staff = f"({ROLE('teacher')} || {ROLE('admin')})"
-    return (f"auth != null && ({MGR} || ({APPROVED} && {staff} && (({MY_CID} != null && {MY_CID} === {scope})"
-            f" || ({scope} === '_main' && {MY_CID} == null))))")
+# sp1/copen/{cid}: a center's lesson openings, leaderboard and live game.
+# sp1/open: the same for the owner's own groups (people with no center), as before.
+STAFF_ROLE = f"({ROLE('teacher')} || {ROLE('admin')})"
+COPEN_READ = f"auth != null && ({MGR} || ({MY_CID} != null && {MY_CID} === $cid))"
+COPEN_WRITE = f"auth != null && ({MGR} || ({APPROVED} && {STAFF_ROLE} && {MY_CID} != null && {MY_CID} === $cid))"
+OPEN_READ = f"auth != null && ({MGR} || {MY_CID} == null)"
+OPEN_WRITE = f"auth != null && ({MGR} || ({APPROVED} && {ROLE('teacher')} && {MY_CID} == null))"
 
 def invite_ok_writer(d):
     """Who may create (d=newData) or delete (d=data) the invite at invites/$code."""
@@ -177,7 +176,8 @@ rules = {
       },
     },
     "boards": {"$uid": {".read": "auth != null && auth.uid === $uid", ".write": "auth != null && auth.uid === $uid"}},
-    "open": {"$scope": {".read": scope_read("$scope"), ".write": scope_write("$scope")}},
+    "open": {".read": OPEN_READ, ".write": OPEN_WRITE},
+    "copen": {"$cid": {".read": COPEN_READ, ".write": COPEN_WRITE}},
     "access": {
       ".read": f"auth != null && {MGR}",
       "$uid": {".read": CAN_SEE("$uid"), ".write": CAN_STAFF("$uid")},
