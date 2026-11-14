@@ -213,8 +213,8 @@ function drawStudents(el){
       ${list.length ? `<button class="btn btn-accent btn-sm" data-assign="">+ ${L("Uy vazifasi berish", "Assign homework")}</button>` : ""}</div>
     ${f.length > 2 ? filterSwitch("students", f, cur) : ""}
     ${list.length ? `<div class="stu-list">${list.map(s => {
-        const open = units.filter(u => A().hasFor(s, A().keyOf(u))).length, done = Object.keys(s.sp1.hwDone).length;
-        const started = Object.keys(s.sp1.hwInputs).filter(k => (s.sp1.hwInputs[k] || []).some(x => x) && !s.sp1.hwDone[k]).length;
+        const open = units.filter(u => A().hasFor(s, A().keyOf(u))).length, done = Object.keys(s.sp1.hwDone).filter(k => A().hwByNum(+k)).length;   // this course version's homework only
+        const started = Object.keys(s.sp1.hwInputs).filter(k => A().hwByNum(+k) && (s.sp1.hwInputs[k] || []).some(x => x) && !s.sp1.hwDone[k]).length;
         const nm = s.name || s.email || "—";
         return `<div class="stu-card">
           <div class="stu-id"><span class="user-avatar user-avatar-fallback stu-avatar">${esc(nm.trim().charAt(0).toUpperCase())}</span>
@@ -291,11 +291,11 @@ function drawProgress(el){
   watchFor(uid);
   const p = s.sp1, units = unitsAll(), open = units.filter(u => A().hasFor(s, A().keyOf(u)));
   const rvl = reviewView.list || {}, isDone = n => !!(p.hwDone[n] || (rvl[n] && rvl[n].checked));
-  const done = [...new Set(Object.keys(p.hwDone).concat(Object.keys(rvl).filter(n => rvl[n] && rvl[n].checked)))].map(Number).sort((a, b) => a - b);
+  const done = [...new Set(Object.keys(p.hwDone).concat(Object.keys(rvl).filter(n => rvl[n] && rvl[n].checked)))].map(Number).filter(n => A().hwByNum(n)).sort((a, b) => a - b);
   const started = Object.keys(p.hwInputs).map(Number).filter(n => (p.hwInputs[n] || []).some(x => x)).sort((a, b) => a - b);
   const asg = Object.keys(assignView.list).map(id => Object.assign({ id }, assignView.list[id])).sort((a, b) => (b.at || 0) - (a.at || 0));
   const rs = Object.keys(resetView.list).map(id => Object.assign({ id }, resetView.list[id]));
-  const hwRows = [...new Set(done.concat(started))].sort((a, b) => a - b);
+  const hwRows = [...new Set(done.concat(started))].filter(n => A().hwByNum(n)).sort((a, b) => a - b);
   el.innerHTML = `<a class="auth-link-btn" href="#/settings/progress">← ${L("Barcha oʻquvchilar", "All students")}</a>
     <section class="panel"><div class="panel-head"><h2>${esc(s.name || s.email)}</h2><p class="panel-sub">${esc(s.email || "")}${s.teacherId ? " · " + L("Oʻqituvchi", "Teacher") + ": " + esc(nameOf(s.teacherId)) : ""} · ${L("Oxirgi faollik", "Last active")}: ${A().fmtAgo(p.updatedAt || p.lastSeen || s.lastActive)}</p></div>
       <div class="stat-row"><div class="stat-tile"><span class="stat-num">${open.length}/${units.length}</span><span class="stat-label">${L("Ochiq darslar", "Open lessons")}</span></div>
