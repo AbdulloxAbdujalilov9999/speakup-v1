@@ -356,7 +356,7 @@ function toast(msg){
 }
 
 /* ---------------- header ---------------- */
-const aiReady = () => !!(window.TTHelper && window.TTHelper.available());
+const aiReady = () => !!(window.TTHelper && window.TTHelper.available()) && !(Cloud() && Cloud().aiOff);
 function renderChrome(route){
   const nav = [["#/", "home", "home"], ["#/lessons", "lessons", "board"], ["#/homeworks", "homeworks", "pencil"]];
   if (Learn() && !isStaff()) nav.push(["#/review", "review", "reset"], ["#/me", "myProgress", "star"]);

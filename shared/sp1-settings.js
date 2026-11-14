@@ -14,8 +14,9 @@ let section = "", query = "", lastHtml = "", owed = false;
 const state = { usersFilter: "sp1", studentsFilter: "all", accessStudent: "", calTeacher: "" };
 let events = {}, eventsOff = null, eventsFor = null;
 
-const ROLE = () => ({ owner: L("Ega", "Owner"), manager: L("Menejer", "Manager"), teacher: L("Oʻqituvchi", "Teacher"), student: L("Oʻquvchi", "Student") });
+const ROLE = () => ({ owner: L("Ega", "Owner"), manager: L("Menejer", "Manager"), admin: L("Markaz admini", "Center admin"), teacher: L("Oʻqituvchi", "Teacher"), student: L("Oʻquvchi", "Student") });
 const SECTIONS = () => [
+  ["center", C().isManager ? L("Markazlar", "Centers") : C().isAdmin ? L("Markaz", "Center") : L("Taklif kodi", "Invite code"), "home", () => C().isManager || !!C().centerId],
   ["users", L("Foydalanuvchilar", "Users"), "user", () => C().isManager],
   ["students", L("Oʻquvchilar", "Students"), "board", () => true],
   ["access", L("Darslarga ruxsat", "Lesson access"), "unlock", () => true],
@@ -30,7 +31,8 @@ const usersList = () => Object.keys(people().users).map(id => Object.assign({ id
 const byId = id => people().users[id];
 const nameOf = id => { const u = byId(id); return id === C().uid ? (C().profile.name || "") : u ? (u.name || u.email) : "—"; };
 /* who can be picked as a student's teacher here: approved teachers, plus the owner and managers (so the owner can teach a class) */
-const teachers = () => usersList().filter(u => u.status === "approved" && (u.role === "teacher" || u.role === "owner" || u.role === "manager"));
+const teachers = () => usersList().filter(u => u.status === "approved" && (u.role === "teacher" || u.role === "owner" || u.role === "manager" || u.role === "admin"));
+const lead = () => C().isManager || C().isAdmin;   // may move pupils between teachers
 const isMember = u => !!(people().progress[u.id] && people().progress[u.id].joined) || u.role !== "student";
 
 function modal(html){ const r = document.getElementById("modalRoot"); r.innerHTML = `<div class="modal-backdrop"><div class="modal-card">${html}</div></div>`; return r; }
@@ -54,7 +56,7 @@ async function act(fn, ok){ try{ await fn(); if (ok) A().toast(ok); }catch(e){ a
 /* ---------------- shell ---------------- */
 function render(sec, q){
   const allowed = SECTIONS().filter(s => s[3]());
-  section = allowed.some(s => s[0] === sec) ? sec : (C().isManager ? "users" : "students");
+  section = allowed.some(s => s[0] === sec) ? sec : (C().isManager ? "users" : C().isAdmin ? "center" : "students");
   query = q || "";
   if (section !== "calendar" && eventsOff){ eventsOff(); eventsOff = null; eventsFor = null; }
   if (section !== "progress") watchFor(null);
@@ -76,6 +78,7 @@ function draw(force){
   const pend = C().isManager ? usersList().filter(u => u.status === "pending").length : 0;
   const ub = document.getElementById("usersBadge"); if (ub){ ub.textContent = pend; ub.hidden = !pend; }
   if (section === "answers"){ if (force) A().viewAnswers(body); return; }
+  if (section === "center"){ if (window.SP1Centers) window.SP1Centers.draw(body, query, force); return; }
   const tmp = document.createElement("div");
   ({ users: drawUsers, students: drawStudents, access: drawAccess, progress: drawProgress, calendar: drawCalendar, account: drawAccount })[section](tmp);
   tmp.querySelectorAll(".admin-table").forEach(tb => {
@@ -97,7 +100,7 @@ function filterSwitch(name, options, current){
 
 /* ---------------- Users (owner / manager) ---------------- */
 function teacherPicker(u){
-  if (!C().isManager) return u.teacherId ? `<span class="user-badge">${esc(nameOf(u.teacherId))}</span>` : "";
+  if (!lead()) return u.teacherId ? `<span class="user-badge">${esc(nameOf(u.teacherId))}</span>` : "";
   return `<select class="select" data-teacher="${u.id}"><option value="">${L("Oʻqituvchisiz", "No teacher")}</option>
     ${teachers().map(x => `<option value="${x.id}" ${u.teacherId === x.id ? "selected" : ""}>${esc(x.name || x.email)}${x.role !== "teacher" ? " (" + esc(ROLE()[x.role]) + ")" : ""}</option>`).join("")}</select>`;
 }
@@ -199,7 +202,7 @@ function openAddUser(){
 
 /* ---------------- Students ---------------- */
 function drawStudents(el){
-  const all = A().members(), mgr = C().isManager;
+  const all = A().members(), mgr = lead();
   let f = [], cur = "all";
   if (mgr){
     f = [{ value: "all", label: L("Hammasi", "All"), count: all.length }].concat(teachers().map(x => ({ value: x.id, label: x.name || x.email, count: all.filter(s => s.teacherId === x.id).length })).filter(o => o.count))
@@ -209,7 +212,7 @@ function drawStudents(el){
   const list = cur === "all" ? all : cur === "none" ? all.filter(s => !s.teacherId) : all.filter(s => s.teacherId === cur);
   const units = A().D.units.filter(u => u.type === "lesson" || u.type === "quiz");
   el.innerHTML = `<section class="panel"><div class="panel-head-row"><div><h2>${L("Oʻquvchilar", "Students")} (${list.length})</h2>
-      <p class="panel-sub">${mgr ? L("SpeakUp-1 ga kirgan barcha oʻquvchilar.", "Every student who has signed in to SpeakUp-1.") : L("Sizga biriktirilgan oʻquvchilar.", "Students assigned to you.")}</p></div>
+      <p class="panel-sub">${C().isAdmin ? L("Markazingizdagi barcha oʻquvchilar.", "Every student in your center.") : mgr ? L("SpeakUp-1 ga kirgan barcha oʻquvchilar.", "Every student who has signed in to SpeakUp-1.") : L("Sizga biriktirilgan oʻquvchilar.", "Students assigned to you.")}</p></div>
       ${list.length ? `<button class="btn btn-accent btn-sm" data-assign="">+ ${L("Uy vazifasi berish", "Assign homework")}</button>` : ""}</div>
     ${f.length > 2 ? filterSwitch("students", f, cur) : ""}
     ${list.length ? `<div class="stu-list">${list.map(s => {

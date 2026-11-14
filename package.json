@@ -1,0 +1,10 @@
+{
+  "name": "speakup-v1",
+  "private": true,
+  "description": "SpeakUp-1 — English from Zero: teacher platform for learning centers",
+  "scripts": {
+    "start": "node server.js",
+    "rules": "python3 tools/build_rules.py"
+  },
+  "engines": { "node": ">=20" }
+}
