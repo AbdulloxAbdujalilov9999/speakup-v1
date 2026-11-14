@@ -126,7 +126,9 @@ const toArr = v => {
 };
 function normProgress(p){
   p = p || {};
-  const out = { hwDone:p.hwDone || {}, hwInputs:{}, hwChecks:{}, hwAt:p.hwAt || {}, updatedAt:p.updatedAt || 0, lastSeen:p.lastSeen || 0, joined:!!(p.lastSeen || p.updatedAt || p.name) };
+  const out = { hwDone:p.hwDone || {}, hwInputs:{}, hwChecks:{}, hwAt:p.hwAt || {}, updatedAt:p.updatedAt || 0, lastSeen:p.lastSeen || 0, joined:!!(p.lastSeen || p.updatedAt || p.name),
+    // v2 practice (shared/sp1-learn.js): XP, days with XP, badges, exercise scores, review boxes, wrong answers, checks, live-game answer
+    xp:p.xp || 0, days:p.days || {}, badges:p.badges || {}, px:p.px || {}, srs:p.srs || {}, wrong:p.wrong || {}, chk:p.chk || {}, game:p.game || null };
   Object.keys(p.hwInputs || {}).forEach(k => { out.hwInputs[k] = toArr(p.hwInputs[k]); });
   Object.keys(p.hwChecks || {}).forEach(k => { out.hwChecks[k] = toArr(p.hwChecks[k]).map(Boolean); });
   return out;
@@ -156,6 +158,14 @@ const Cloud = {
   },
   // only the done flag: a checked homework's answers are locked, so don't rewrite them
   markDone(n, ts){ if (!this.uid) return Promise.resolve(); const u = {}; u[`hwDone/${n}`] = ts || Date.now(); u.updatedAt = Date.now(); return update(ref(db, "sp1/progress/" + this.uid), u); },
+  // v2 practice: write only the changed paths of sp1/progress/{uid} ({"xp": 120, "srs/w4-3": [2, 20405], ...})
+  savePractice(paths){
+    if (!this.uid) return Promise.resolve();
+    const u = Object.assign({}, paths, { updatedAt: Date.now() });
+    return update(ref(db, "sp1/progress/" + this.uid), u).catch(e => console.warn("practice sync", e));
+  },
+  // staff: the class leaderboard (sp1/open/_lb/{uid}) and the live game (sp1/open/_game); every signed-in user reads sp1/open
+  setOpenNode(path, val){ return set(ref(db, "sp1/open/" + path), val == null ? null : val); },
   async loadBoards(){ return (await get(ref(db, "sp1/boards/" + this.uid))).val() || {}; },
   saveBoard(key, board){ if (this.uid) return set(ref(db, `sp1/boards/${this.uid}/${key}`), board || null).catch(e => console.warn("board", e)); },
   watchStudent(uid, cb){ return onValue(ref(db, "sp1/progress/" + uid), s => cb(normProgress(s.val())), () => cb(normProgress(null))); },

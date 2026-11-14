@@ -5,7 +5,7 @@
 <meta name="google" content="notranslate">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>SpeakUp-1 — English from Zero</title>
-<meta name="description" content="SpeakUp-1: 30 lessons, 15 checkpoint tests and 30 homeworks — English from Zero, for teachers and students.">
+<meta name="description" content="SpeakUp-1: English from Zero v2 — 30 lessons, 15 progress checks, 30 homeworks, self-checking practice, daily review and a teacher dashboard.">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#5416B5" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0F083B" media="(prefers-color-scheme: dark)">
@@ -22,6 +22,7 @@
 <link rel="stylesheet" href="shared/sp1.css">
 <link rel="stylesheet" href="shared/sp1-v2.css">
 <link rel="stylesheet" href="shared/sp1-admin.css">
+<link rel="stylesheet" href="shared/sp1-learn.css?v=2">
 <script>
   try{
     var t = (JSON.parse(localStorage.getItem("sp1_settings")||"{}")||{}).theme;
@@ -53,7 +54,15 @@
 <div id="modalRoot"></div>
 
 <script src="vendor/pdf.min.js"></script>
-<script src="data/content.js"></script>
+<script>
+/* v2 ("English from Zero v2") is the default course; the old one stays as "Eski versiya" until 14 Dec 2026 */
+(function(){
+  var v = "v2";
+  try{ var st = JSON.parse(localStorage.getItem("sp1_settings") || "{}") || {}; if (st.ver === "v1" && Date.now() < Date.UTC(2026, 11, 14)) v = "v1"; }catch(e){}
+  window.SP1_VER = v;
+  document.write(v === "v1" ? '<script src="data/content.js"><\/script>' : '<script src="data/content-v2.js?v=2"><\/script><script src="data/course-v2.js?v=2"><\/script>');
+})();
+</script>
 <!-- The AI teacher (voice, helper, spoken conversation): copies of SpeakUp's shared/neural-voice.js, teach-script.js,
      teach-ui.js and tutor-ui.js, talking to the same servers as SpeakUp (www.trucktalk.courses). -->
 <script>window.TT_API_BASE = "https://www.trucktalk.courses";</script>
@@ -62,7 +71,8 @@
 <script src="shared/teach-script.js"></script>
 <script src="shared/teach-ui.js"></script>
 <script src="shared/tutor-ui.js"></script>
-<script src="app.js"></script>
+<script src="shared/sp1-learn.js?v=2"></script>
+<script src="app.js?v=2"></script>
 <script src="shared/sp1-settings.js"></script>
 <script type="module" src="shared/sp1-cloud.js"></script>
 </body>

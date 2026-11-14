@@ -8,6 +8,12 @@
 
 const D = window.SU1;
 D.units.forEach(u => { u.objectives = (u.objectives || []).filter(o => !/^\d+$/.test(o.trim())); });
+/* v2 ("English from Zero v2", data/content-v2.js) is the default; v1 stays as "Eski versiya" until OLD_UNTIL.
+ * v2 homework ids are 100 + lesson number, so the two courses' answers never mix. */
+const V2 = D.version === "v2";
+const HB = D.hwBase || 0;
+const OLD_UNTIL = Date.UTC(2026, 11, 14);
+const Learn = () => (window.SP1Learn && window.SP1Learn.enabled ? window.SP1Learn : null);
 const $app = document.getElementById("app");
 const $nav = document.getElementById("mainNav");
 const $actions = document.getElementById("topActions");
@@ -39,7 +45,7 @@ let myAccess = {}, openAll = {};   // sp1/access/{uid} and sp1/open (lessons ope
 let people = null;        // staff: { users, progress, access } (live)
 let peopleReady = false;  // the first copy of the student list has arrived
 const hasAccess = k => isStaff() || !!access[k];
-const hwOpen = n => hasAccess("lesson-" + n) || Object.values(assignments || {}).some(a => String(a.hw) === String(n));
+const hwOpen = n => hasAccess("lesson-" + (n - HB)) || Object.values(assignments || {}).some(a => String(a.hw) === String(n));
 const openedKeys = () => Object.keys(access).sort((a, b) => ((access[a] && access[a].at) || 0) - ((access[b] && access[b].at) || 0));
 /* SpeakUp-1 students this staff account may see (owner/manager: everyone who has signed in here; teacher: their own) */
 function members(){
@@ -101,6 +107,7 @@ function onAccessChange(){
 function onPeople(){
   const raw = location.hash.replace(/^#\/?/, ""), [path] = raw.split("?"), parts = path.split("/");
   updateBadge();
+  if (Learn()) Learn().onPeople();
   if (parts[0] === "settings" && window.SP1Settings) window.SP1Settings.refresh();
   else if (parts[0] === "u" && !P) refreshAccessBar(parts[1]);
   else if (parts[0] === "student" && document.getElementById("stuWait")) route_();   // opened (or refreshed) before the student list arrived
@@ -126,7 +133,9 @@ async function initUser(){
   let openFirst = true;
   await new Promise(res => {
     openOff = C.watchOpenAll(v => {
-      openAll = Object.assign({}, v || {});
+      // sp1/open also carries the class leaderboard (_lb) and the live game (_game): not lessons
+      if (Learn()) Learn().onOpen(v);
+      openAll = {}; Object.keys(v || {}).forEach(k => { if (k[0] !== "_") openAll[k] = v[k]; });
       if (openFirst){ openFirst = false; return res(); }
       if (isStaff()) onPeople(); else if (merge()) onAccessChange();
     });
@@ -188,6 +197,7 @@ async function initUser(){
         progress.hwAt[n] = r;
       } else if (l > r) syncHomework(n);
     });
+    if (Learn()) Learn().merge(remote);
     if (isStaff()){
       const boards = await C.loadBoards();
       const tb = boards._teach; delete boards._teach;
@@ -272,6 +282,10 @@ const T = {
   accessSaved:["Ruxsatlar saqlandi","Access saved"], everyone:["Hamma oʻquvchilar","Every student"],
   everyoneSub:["Keyin qoʻshiladigan yangi oʻquvchilar ham koʻradi","Students who join later get it too"], openToAll:["Hammaga ochiq","Open to everyone"],
   lockedChip:["Yopiq","Locked"], assigned:["Oʻqituvchi bergan uy vazifalari","Homework from your teacher"],
+  practice:["Mashq qilish","Practice"], review:["Takrorlash","Review"], myProgress:["Yutuqlar","Progress"], dashboard:["Panel","Dashboard"],
+  oldVersion:["Eski versiya","Old version"], newVersion:["Yangi versiya (v2)","New version (v2)"],
+  checkMine:["Javoblarimni tekshirish","Check my answers"], selfCheck:["ta toʻgʻri (avtomatik tekshiruv)","correct (auto-check)"],
+  selfCheckNote:["Yozish va oʻqish javoblarini oʻqituvchi tekshiradi.","Your teacher checks the writing and reading answers."],
   due:["muddati","due"], fromTeacher:["Oʻqituvchidan","From your teacher"], noClass:["Bu darsni kimga ochishni «Oʻquvchilarga ruxsat berish» orqali tanlang.","Choose who gets this lesson with “Grant access to students”."]
 };
 const t = k => (T[k] ? T[k][settings.lang === "en" ? 1 : 0] : k);
@@ -284,6 +298,10 @@ const unitByKey = k => D.units.find(u => keyOf(u) === k);
 const lessons = D.units.filter(u => u.type === "lesson");
 const quizzes = D.units.filter(u => u.type === "quiz");
 const hwByNum = n => D.homeworks.find(h => h.num === n);
+const hwOfLesson = n => hwByNum(n + HB);            // a lesson's homework (v2 ids are 100 + lesson)
+const hwNo = h => (h && (h.n || h.num - HB)) || "";  // the number people see
+const isAnsSlide = s => !!(s && (s.ans || /JAVOBLAR/i.test(s.label)));
+const bk = k => (V2 ? "v2-" + k : k);               // slide boards / last slide: the v1 and v2 decks differ
 const partOf = u => D.parts[u.part - 1];
 
 function unitName(u){
@@ -323,7 +341,9 @@ const I = (name, size) => {
     skip:'<path d="M5 5l8 7-8 7zM15 5v14"/>', reset:'<path d="M3 12a9 9 0 109-9 9.7 9.7 0 00-6.7 2.8L3 8"/><path d="M3 3v5h5"/>',
     gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/>',
     chat:'<path d="M21 12a8 8 0 01-11.6 7.1L4 20l1-4.6A8 8 0 1121 12z"/>', lock:'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/>',
-    unlock:'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 017.5-2"/>'
+    unlock:'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 017.5-2"/>',
+    star:'<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
+    chart:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'
   }[name] || "";
   const s = size || 20;
   return `<svg class="icon" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
@@ -339,22 +359,27 @@ function toast(msg){
 const aiReady = () => !!(window.TTHelper && window.TTHelper.available());
 function renderChrome(route){
   const nav = [["#/", "home", "home"], ["#/lessons", "lessons", "board"], ["#/homeworks", "homeworks", "pencil"]];
-  if (isStaff()) nav.push(["#/materials", "materials", "folder"]);
+  if (Learn() && !isStaff()) nav.push(["#/review", "review", "reset"], ["#/me", "myProgress", "star"]);
+  if (isStaff()) nav.push(Learn() ? ["#/dashboard", "dashboard", "chart"] : ["#/materials", "materials", "folder"]);
   if (aiReady()) nav.push(["#ai", "aiTeacher", "chat"]);
   if (isStaff()) nav.push(["#/settings", "settings", "gear"]);
   $nav.innerHTML = nav.map(([h, k, ic]) => {
     const active = h !== "#ai" && ((h === "#/" ? route === "" : route.startsWith(h.slice(2))) ||
-      (k === "lessons" && route.startsWith("u/")) || (k === "homeworks" && route.startsWith("hw/")) || (k === "settings" && route.startsWith("student/")));
-    return `<a class="navbtn${active ? " active" : ""}" href="${h}" ${h === "#ai" ? 'data-ai="1"' : ""} style="text-decoration:none;position:relative"><span class="nav-icon">${I(ic)}</span><span>${t(k)}</span>${k === "settings" ? `<span class="nav-badge" id="setBadge" hidden></span>` : ""}</a>`;
+      (k === "lessons" && (route.startsWith("u/") || route.startsWith("practice/") || route.startsWith("check/"))) || (k === "homeworks" && route.startsWith("hw/")) || (k === "settings" && route.startsWith("student/")) || (k === "dashboard" && route.startsWith("game/")));
+    return `<a class="navbtn${active ? " active" : ""}" href="${h}" ${h === "#ai" ? 'data-ai="1"' : ""} style="text-decoration:none;position:relative"><span class="nav-icon">${I(ic)}</span><span>${t(k)}</span>${k === "settings" ? `<span class="nav-badge" id="setBadge" hidden></span>` : ""}${k === "review" ? `<span class="nav-badge" id="revBadge" hidden></span>` : ""}</a>`;
   }).join("");
   const ai = $nav.querySelector("[data-ai]");
   if (ai) ai.onclick = e => { e.preventDefault(); window.TTHelper.openTalk(); };
   updateBadge();
+  if (Learn()){ Learn().refreshNavBadge(); Learn().gameBanner(); }
   const me = Cloud() && Cloud().profile;
   $actions.innerHTML = `
     ${me ? `<button class="mode-toggle" id="signOutBtn" title="${t("signOut")}">${I("user", 16)}<span class="who">${esc((me.name || me.email || "").split(" ")[0])}</span><span>· ${t("signOut")}</span></button>` : ""}
+    ${Date.now() < OLD_UNTIL ? `<button class="mode-toggle ver-toggle" id="verBtn" title="${V2 ? t("oldVersion") : t("newVersion")}">${V2 ? "v2" : "v1"}<span class="ver-lbl">· ${V2 ? t("oldVersion") : t("newVersion")}</span></button>` : ""}
     <div class="lang-switch"><button data-lang="uz" class="${settings.lang === "uz" ? "active" : ""}">UZ</button><button data-lang="en" class="${settings.lang === "en" ? "active" : ""}">EN</button></div>
     <button class="mode-toggle" id="themeBtn" title="${t("theme")}" aria-label="${t("theme")}">${I("moon", 16)}</button>`;
+  const vb = document.getElementById("verBtn");
+  if (vb) vb.onclick = () => { settings.ver = V2 ? "v1" : "v2"; saveSettings(); location.hash = "#/"; location.reload(); };
   const so = document.getElementById("signOutBtn");
   if (so) so.onclick = () => Cloud().signOut();
   $actions.querySelectorAll("[data-lang]").forEach(b => b.onclick = () => { settings.lang = b.dataset.lang; saveSettings(); document.documentElement.lang = settings.lang; route_(); });
@@ -391,7 +416,7 @@ function assignedPanel(){
   return `<section class="panel assigned-panel"><div class="panel-head"><h2>${t("assigned")}</h2></div><div class="unit-list">${list.map(a => {
     const h = hwByNum(a.hw), done = !!progress.hwDone[a.hw];
     return `<a class="unit-row${done ? " done" : ""}" href="#/hw/${a.hw}" style="text-decoration:none">
-      <span class="unit-badge"><small>UY</small><b>${done ? I("check", 22) : a.hw}</b></span>
+      <span class="unit-badge"><small>UY</small><b>${done ? I("check", 22) : hwNo(h)}</b></span>
       <span class="unit-main"><h3>${esc(h.title)}</h3><p class="unit-meta">${a.dueDate ? `${t("due")}: ${esc(a.dueDate)}` : esc(h.subtitle)}${a.note ? ` · “${esc(a.note)}”` : ""}${a.byName ? ` · ${esc(a.byName)}` : ""}</p></span>
       <span class="unit-side"><span class="chip${done ? " ok" : " accent"}">${done ? t("done") : t("openHomework")}</span></span></a>`;
   }).join("")}</div></section>`;
@@ -400,7 +425,7 @@ function assignedPanel(){
 function viewHomeStudent(){
   const keys = openedKeys().filter(k => unitByKey(k));
   const latest = keys.length ? unitByKey(keys[keys.length - 1]) : null;
-  const hwList = keys.map(unitByKey).filter(u => u.type === "lesson" && hwByNum(u.num)).map(u => hwByNum(u.num));
+  const hwList = keys.map(unitByKey).filter(u => u.type === "lesson" && hwOfLesson(u.num)).map(u => hwOfLesson(u.num));
   const hwN = hwList.filter(h => progress.hwDone[h.num]).length;
   const nb = latest ? badgeTxt(latest) : null;
   const me = Cloud().profile || {};
@@ -418,13 +443,14 @@ function viewHomeStudent(){
       <div class="upnext-badge"><small>${nb[0]}</small><b>${nb[1]}</b></div>
       <div class="upnext-text"><p class="upnext-label">${t("latestLesson")}</p><h2>${esc(latest.title)}</h2>
         <p class="upnext-meta">${esc(unitName(latest))} · ${latest.slides.length} ${t("slides")}</p></div>
-      ${latest.type === "lesson" && hwByNum(latest.num) ? `<a class="btn btn-accent" href="#/hw/${latest.num}">${I("pencil", 18)}${t("openHomework")}</a>` : `<a class="btn btn-accent" href="#/u/${keyOf(latest)}">${t("openLesson")}</a>`}
+      ${latest.type === "lesson" && Learn() ? `<a class="btn btn-accent" href="#/practice/${latest.num}">${I("pencil", 18)}${t("practice")}</a>` : latest.type === "lesson" && hwOfLesson(latest.num) ? `<a class="btn btn-accent" href="#/hw/${hwOfLesson(latest.num).num}">${I("pencil", 18)}${t("openHomework")}</a>` : `<a class="btn btn-accent" href="#/u/${keyOf(latest)}">${t("openLesson")}</a>`}
     </div>` : ""}
     <div class="hero-stats">
       <div class="stat-tile"><span class="stat-ico">${I("board", 18)}</span><span class="stat-num">${keys.length}</span><span class="stat-label">${t("openedLessons")}</span></div>
       <div class="stat-tile"><span class="stat-ico">${I("pencil", 18)}</span><span class="stat-num">${hwN}<span class="stat-den">/${hwList.length}</span></span><span class="stat-label">${t("hwDone")}</span></div>
     </div>
   </section>
+  ${Learn() ? Learn().homeStrip() : ""}
   ${assignedPanel()}
   ${keys.length ? "" : emptyLessons()}
   ${D.parts.map(p => `<section class="part-panel"><div class="part-head"><div><p class="eyebrow">${partName(p.num).toUpperCase()}</p><h2>${esc(p.title)}</h2></div></div>
@@ -465,6 +491,7 @@ function viewHome(){
     <a class="quick-tile" href="#/homeworks" style="text-decoration:none"><span class="quick-ico">${I("pencil", 24)}</span><span class="quick-t">${t("homeworks")}</span><span class="quick-s">${D.homeworks.length}</span></a>
     <a class="quick-tile" href="#/answers" style="text-decoration:none"><span class="quick-ico">${I("key", 24)}</span><span class="quick-t">${t("answers")}</span><span class="quick-s">1–30</span></a>
     <a class="quick-tile" href="#/materials" style="text-decoration:none"><span class="quick-ico">${I("folder", 24)}</span><span class="quick-t">${t("materials")}</span><span class="quick-s">PPTX · PDF · DOCX</span></a>
+    ${Learn() ? `<a class="quick-tile" href="#/dashboard" style="text-decoration:none"><span class="quick-ico">${I("chart", 24)}</span><span class="quick-t">${t("dashboard")}</span><span class="quick-s">${settings.lang === "en" ? "Scores · CSV" : "Natijalar · CSV"}</span></a>` : ""}
   </section>
   <section class="panel">
     <div class="panel-head"><h2>${t("coursePlan")}</h2></div>
@@ -482,7 +509,7 @@ function viewHome(){
 function unitRow(u){
   const k = keyOf(u), b = badgeTxt(u), done = !!progress.taught[k];
   const cls = u.type === "quiz" ? "quiz" : (u.type === "lesson" ? "" : "extra");
-  const hw = u.type === "lesson" && hwByNum(u.num);
+  const hw = u.type === "lesson" && hwOfLesson(u.num);
   if (!hasAccess(k)) return `<div class="unit-row locked ${cls}" title="${t("lockedSub")}">
     <span class="unit-badge"><small>${b[0]}</small><b>${I("lock", 20)}</b></span>
     <span class="unit-main"><h3>${esc(u.title)}</h3><p class="unit-meta">${esc(unitName(u))}${u.objectives && u.objectives.length ? " · " + esc(u.objectives.slice(0, 3).join(" · ")) : ""}</p></span>
@@ -490,7 +517,7 @@ function unitRow(u){
   return `<a class="unit-row ${cls}${done ? " done" : ""}" href="#/u/${k}" style="text-decoration:none">
     <span class="unit-badge"><small>${b[0]}</small><b>${done ? I("check", 22) : b[1]}</b></span>
     <span class="unit-main"><h3>${esc(u.title)}</h3><p class="unit-meta">${esc(unitName(u))} · ${u.slides.length} ${t("slides")}${u.objectives && u.objectives.length ? " · " + esc(u.objectives.slice(0, 3).join(" · ")) : ""}</p></span>
-    <span class="unit-side">${isStaff() && (u.type === "lesson" || u.type === "quiz") ? `<span class="chip accent" data-open-chip="${k}" ${openFor(k).length || openAll[k] ? "" : "hidden"}>${openAll[k] ? t("openToAll") : `${t("openFor")} ${openFor(k).length}`}</span>` : ""}${done && isStaff() ? `<span class="chip ok">${t("taught")}</span>` : ""}${u.type === "quiz" ? `<span class="chip quiz">${t("quizzesHeld")}</span>` : ""}${hw ? `<span class="chip${progress.hwDone[u.num] ? " ok" : ""}">${t("homework")} ${u.num}${progress.hwDone[u.num] && !isStaff() ? " ✓" : ""}</span>` : ""}</span>
+    <span class="unit-side">${isStaff() && (u.type === "lesson" || u.type === "quiz") ? `<span class="chip accent" data-open-chip="${k}" ${openFor(k).length || openAll[k] ? "" : "hidden"}>${openAll[k] ? t("openToAll") : `${t("openFor")} ${openFor(k).length}`}</span>` : ""}${done && isStaff() ? `<span class="chip ok">${t("taught")}</span>` : ""}${u.type === "quiz" ? `<span class="chip quiz">${t("quizzesHeld")}</span>` : ""}${hw ? `<span class="chip${progress.hwDone[hw.num] ? " ok" : ""}">${t("homework")} ${u.num}${progress.hwDone[hw.num] && !isStaff() ? " ✓" : ""}</span>` : ""}</span>
   </a>`;
 }
 
@@ -601,8 +628,8 @@ function viewUnit(k){
   if (!u) return notFound();
   if (!hasAccess(k)) return lockedView();
   const idx = D.units.indexOf(u), prev = D.units[idx - 1], next = D.units[idx + 1];
-  const p = partOf(u), done = !!progress.taught[k], last = progress.lastSlide[k] || 0;
-  const hw = u.type === "lesson" ? hwByNum(u.num) : null;
+  const p = partOf(u), done = !!progress.taught[k], last = progress.lastSlide[bk(k)] || 0;
+  const hw = u.type === "lesson" ? hwOfLesson(u.num) : null;
   const objTitle = u.type === "lesson" ? t("whatWeLearn") : "";
   $app.innerHTML = `
   <nav class="crumbs"><a href="#/lessons">${t("lessons")}</a><span>›</span><a href="#/lessons?part=${u.part}">${partName(u.part)}</a><span>›</span><span>${esc(unitName(u))}</span></nav>
@@ -617,6 +644,7 @@ function viewUnit(k){
     </div>
   </section>
   ${accessBarHtml(k)}
+  ${Learn() ? Learn().lessonCard(u) : ""}
   ${hw ? `<a class="pair-card" href="#/hw/${hw.num}">
       <span class="quick-ico">${I("pencil", 24)}</span>
       <span class="grow"><p class="eyebrow">${t("pairedHw")}</p><h3>${esc(hw.title)}</h3><p>${esc(hw.subtitle)}</p></span>
@@ -626,7 +654,7 @@ function viewUnit(k){
     <div class="panel-head toolbar"><h2>${t("slidesOfLesson")}</h2><span class="spacer"></span>
       ${isStaff() ? `<a class="btn btn-sm" href="${href(p.pptx)}" download>${I("download", 16)}PPTX</a>
       <a class="btn btn-sm" href="${href(p.pdf)}#page=${u.start}" target="_blank" rel="noopener">${I("file", 16)}PDF</a>` : ""}</div>
-    <div class="slide-grid">${u.slides.map((s, i) => isStaff() || !/JAVOBLAR/i.test(s.label) ? `
+    <div class="slide-grid">${u.slides.map((s, i) => isStaff() || !isAnsSlide(s) ? `
       <a class="slide-thumb" href="#/present/${k}/${i}" style="text-decoration:none">
         <span class="thumb-canvas" data-src="${u.pdf}" data-page="${i + 1}"></span>
         <span class="thumb-label">${i + 1}. ${esc(s.label)}</span>
@@ -662,15 +690,15 @@ function viewHomeworks(){
     if (!ls.length) return "";
     return `<section class="part-panel" data-part="${p.num}">
       <div class="part-head"><div><p class="eyebrow">${partName(p.num).toUpperCase()}</p><h2>${t("homework")} ${ls[0].num}–${ls[ls.length - 1].num}</h2></div></div>
-      <div class="unit-list">${ls.map(u => hwByNum(u.num)).filter(Boolean).map(h => !hwOpen(h.num) ? `
-        <div class="unit-row hw-list-row locked" data-search="${esc((h.num + " " + h.title + " " + h.subtitle).toLowerCase())}">
+      <div class="unit-list">${ls.map(u => hwOfLesson(u.num)).filter(Boolean).map(h => !hwOpen(h.num) ? `
+        <div class="unit-row hw-list-row locked" data-search="${esc((hwNo(h) + " " + h.title + " " + h.subtitle).toLowerCase())}">
           <span class="unit-badge"><small>UY</small><b>${I("lock", 20)}</b></span>
           <span class="unit-main"><h3>${esc(h.title)}</h3><p class="unit-meta">${esc(h.subtitle)}</p></span>
           <span class="unit-side"><span class="chip">${I("lock", 12)} ${t("lockedChip")}</span></span></div>` : `
-        <a class="unit-row hw-list-row${progress.hwDone[h.num] ? " done" : ""}" href="#/hw/${h.num}" style="text-decoration:none" data-search="${esc((h.num + " " + h.title + " " + h.subtitle).toLowerCase())}">
-          <span class="unit-badge"><small>UY</small><b>${progress.hwDone[h.num] ? I("check", 22) : h.num}</b></span>
+        <a class="unit-row hw-list-row${progress.hwDone[h.num] ? " done" : ""}" href="#/hw/${h.num}" style="text-decoration:none" data-search="${esc((hwNo(h) + " " + h.title + " " + h.subtitle).toLowerCase())}">
+          <span class="unit-badge"><small>UY</small><b>${progress.hwDone[h.num] ? I("check", 22) : hwNo(h)}</b></span>
           <span class="unit-main"><h3>${esc(h.title)}</h3><p class="unit-meta">${esc(h.subtitle)}</p></span>
-          <span class="unit-side">${!isStaff() && reviews[h.num] && reviews[h.num].checked ? `<span class="chip ok">${t("checkedTag")}${scoreOf(reviews[h.num]).tot ? " · " + scoreOf(reviews[h.num]).c + "/" + scoreOf(reviews[h.num]).tot : ""}</span>` : ""}${progress.hwDone[h.num] ? `<span class="chip ok">${t("done")}</span>` : ""}${isStaff() && progress.taught["lesson-" + h.num] ? `<span class="chip">${t("taught")}</span>` : ""}${isStaff() && openAll["lesson-" + h.num] ? `<span class="chip accent">${t("openToAll")}</span>` : isStaff() && openFor("lesson-" + h.num).length ? `<span class="chip accent">${t("openFor")} ${openFor("lesson-" + h.num).length}</span>` : ""}</span>
+          <span class="unit-side">${!isStaff() && reviews[h.num] && reviews[h.num].checked ? `<span class="chip ok">${t("checkedTag")}${scoreOf(reviews[h.num]).tot ? " · " + scoreOf(reviews[h.num]).c + "/" + scoreOf(reviews[h.num]).tot : ""}</span>` : ""}${progress.hwDone[h.num] ? `<span class="chip ok">${t("done")}</span>` : ""}${isStaff() && progress.taught["lesson-" + hwNo(h)] ? `<span class="chip">${t("taught")}</span>` : ""}${isStaff() && openAll["lesson-" + hwNo(h)] ? `<span class="chip accent">${t("openToAll")}</span>` : isStaff() && openFor("lesson-" + hwNo(h)).length ? `<span class="chip accent">${t("openFor")} ${openFor("lesson-" + hwNo(h)).length}</span>` : ""}</span>
         </a>`).join("")}</div></section>`;
   }).join("")}`;
   const s = document.getElementById("hwSearch");
@@ -832,7 +860,7 @@ function viewHomework(n, query){
   if (!h) return notFound();
   if (!hwOpen(n)) return lockedView();
   const sel = isStaff() ? (new URLSearchParams(query || "").get("s") || "") : "";
-  const u = unitByKey("lesson-" + n), ans = D.answerKey.lessons[n];
+  const u = unitByKey("lesson-" + (n - HB)), ans = D.answerKey.lessons[n];
   const prevH = hwByNum(n - 1), nextH = hwByNum(n + 1);
   const qs = sel ? "?s=" + encodeURIComponent(sel) : "";
   $app.innerHTML = `
@@ -843,7 +871,8 @@ function viewHomework(n, query){
       <span class="chip" id="stuState" hidden></span>
     </section>` : ""}
   <div class="toolbar">
-    ${u ? `<a class="btn btn-sm" href="#/u/${keyOf(u)}">${I("board", 16)}${t("openLesson")} ${n}</a>` : ""}
+    ${u ? `<a class="btn btn-sm" href="#/u/${keyOf(u)}">${I("board", 16)}${t("openLesson")} ${hwNo(h)}</a>` : ""}
+    ${u && Learn() && !sel ? `<a class="btn btn-sm" href="#/practice/${u.num}">${I("pencil", 16)}${t("practice")}</a>` : ""}
     ${sel ? "" : `<button class="btn btn-sm${progress.hwDone[n] ? " btn-accent" : ""}" id="hwDoneBtn">${I("check", 16)}${progress.hwDone[n] ? t("done") + " ✓" : t("markDone")}</button>`}
     <span class="spacer"></span>
     <button class="btn btn-sm" id="hwPrint">${I("print", 16)}${t("print")}</button>
@@ -851,6 +880,7 @@ function viewHomework(n, query){
     <a class="btn btn-sm" href="${href(h.pdf)}" target="_blank" rel="noopener">${I("file", 16)}PDF</a>` : ""}
     ${sel ? "" : `<button class="btn btn-sm btn-ghost" id="hwClear">${t("clear")}</button>`}
   </div>
+  ${h.keys && !sel && Learn() ? `<section class="panel self-check no-print" id="selfCheck"><button class="btn btn-sm btn-accent" id="hwSelf">${I("check", 16)}${t("checkMine")}</button><span class="sc-out" id="hwSelfOut">${t("selfCheckNote")}</span></section>` : ""}
   ${sel ? `<p class="panel-sub no-print">${t("viewingStudent")}</p>` : `<p class="panel-sub no-print">${t("hwNote")}</p>`}
   ${!isStaff() ? assignedList().filter(a => a.hw === n).map(a => `<section class="panel locked-note no-print">${I("clock", 20)}<span><b>${t("fromTeacher")}</b>${a.dueDate ? ` · ${t("due")}: ${esc(a.dueDate)}` : ""}${a.note ? ` · “${esc(a.note)}”` : ""}</span></section>`).join("") : ""}
   <section class="panel review-panel no-print" id="rvPanel" hidden></section>
@@ -860,9 +890,9 @@ function viewHomework(n, query){
       <ol>${ans.items.map(i => `<li>${esc(i)}</li>`).join("")}</ol></section>`
     : (isStaff() ? `<section class="panel locked-note no-print">${I("key", 22)}<span>${t("teacherOnly")}</span></section>` : "")) : ""}
   <div class="toolbar no-print">
-    ${prevH && hwOpen(prevH.num) ? `<a class="btn" href="#/hw/${prevH.num}${qs}">${I("left", 18)}${t("homework")} ${prevH.num}</a>` : ""}
+    ${prevH && hwOpen(prevH.num) ? `<a class="btn" href="#/hw/${prevH.num}${qs}">${I("left", 18)}${t("homework")} ${hwNo(prevH)}</a>` : ""}
     <span class="spacer"></span>
-    ${nextH && hwOpen(nextH.num) ? `<a class="btn" href="#/hw/${nextH.num}${qs}">${t("homework")} ${nextH.num}${I("right", 18)}</a>` : ""}
+    ${nextH && hwOpen(nextH.num) ? `<a class="btn" href="#/hw/${nextH.num}${qs}">${t("homework")} ${hwNo(nextH)}${I("right", 18)}</a>` : ""}
   </div>`;
   const sheet = document.getElementById("hwSheet");
   const inputs = prepBlanks(sheet), checks = [...sheet.querySelectorAll(".hw-check input")];
@@ -883,7 +913,7 @@ function viewHomework(n, query){
     checks.forEach(el => el.disabled = true);
     const st = document.getElementById("stuState");
     let orig = [], rv = null, saveT = null;
-    const km = keyMap(sheet, n);
+    const km = h.keys ? h.keys.map(k => k ? { ex:k.ex, item:k.i, key:k.a, after:"", open:!!k.open } : null) : keyMap(sheet, n);
     // the Name / Class / Date boxes above the first exercise aren't answers: no ✓/✗, not counted
     const firstH = sheet.querySelector(".hw-h");
     const meta = inputs.map(el => !!firstH && !!(firstH.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING));
@@ -942,7 +972,9 @@ function viewHomework(n, query){
         document.getElementById("rvAuto").onclick = () => {
           const r2 = R(); r2.marks = r2.marks || {}; r2.fix = r2.fix || {}; let ok = 0, bad = 0;
           km.forEach((k, i) => { if (!k || meta[i] || !(orig[i] || "").trim() || r2.fix["i" + i] != null) return;
-            if (keyMatches(k, orig[i])){ r2.marks["i" + i] = 1; ok++; } else bad++; });
+            if (keyMatches(k, orig[i])){ r2.marks["i" + i] = 1; ok++; }
+            else if (h.keys && !k.open && Learn() && Learn().check(k.key.join(" / "), orig[i]) === false){ r2.marks["i" + i] = 0; bad++; }   // v2: a reliable key marks ✗ too
+            else bad++; });
           paint(); save();
           toast(`${ok} ✓ · ${bad} ${t("toReview")}`);
         };
@@ -996,6 +1028,17 @@ function viewHomework(n, query){
     const a = progress.hwChecks[n] = Array.from({ length:checks.length }, (_, j) => !!(progress.hwChecks[n] || [])[j]);
     a[i] = el.checked; syncHomework(n);
   }));
+  const selfBtn = document.getElementById("hwSelf");
+  if (selfBtn) selfBtn.onclick = () => {
+    const vals = inputs.map(el => el.value), res = Learn().checkHomework(h, vals);
+    let c = 0, tot = 0;
+    sheet.querySelectorAll(".hw-self").forEach(x => x.remove());
+    inputs.forEach((el, i) => { el.classList.remove("self-ok", "self-bad"); const r = res[i]; if (r == null) return; tot++; if (r) c++;
+      if (el.nextElementSibling && el.nextElementSibling.classList.contains("hw-rv")) return;   // the teacher has already marked this one
+      el.classList.add(r ? "self-ok" : "self-bad"); el.insertAdjacentHTML("afterend", `<span class="hw-self ${r ? "ok" : "bad"}">${r ? "✓" : "✗"}</span>`); });
+    const auto = (h.keys || []).filter(k => k && !k.open).length;
+    document.getElementById("hwSelfOut").innerHTML = `<b>${c}/${auto}</b> ${t("selfCheck")}${tot < auto ? ` · ${auto - tot} ${settings.lang === "en" ? "not answered" : "ta javobsiz"}` : ""}. ${t("selfCheckNote")}`;
+  };
   if (myRv && myRv.checked){
     inputs.forEach(el => el.readOnly = true); checks.forEach(el => el.disabled = true);
     ["hwDoneBtn", "hwClear"].forEach(id => { const b = document.getElementById(id); if (b) b.hidden = true; });
@@ -1034,7 +1077,7 @@ async function viewStudent(uid){
     <div class="section-title"><div><h1>${esc(s.name || s.email)}</h1><p>${esc(s.email || "")} · ${t("lastActive")}: ${fmtAgo(p.updatedAt || s.lastActive)}</p></div></div>
     ${D.parts.map(pt => `<section class="part-panel"><div class="part-head"><div><p class="eyebrow">${partName(pt.num).toUpperCase()}</p></div></div>
       <div class="unit-list">${lessons.filter(u => u.part === pt.num).map(u => {
-        const h = hwByNum(u.num); if (!h) return "";
+        const h = hwOfLesson(u.num); if (!h) return "";
         const opened = !!(openAll["lesson-" + u.num] || (people && people.access[uid] && people.access[uid]["lesson-" + u.num]));
         const f = (p.hwInputs[h.num] || []).filter(x => x).length, done = !!p.hwDone[h.num];
         return `<a class="unit-row hw-list-row${done ? " done" : ""}" href="#/hw/${h.num}?s=${encodeURIComponent(uid)}" style="text-decoration:none">
@@ -1057,7 +1100,7 @@ function viewAnswers(target){
   ${Object.keys(ak.lessons).map(Number).sort((a, b) => a - b).map(n => {
     const a = ak.lessons[n];
     return `<section class="panel answer-panel" data-search="${esc((n + " " + a.title + " " + a.items.join(" ")).toLowerCase())}">
-      <div class="panel-head toolbar"><h2>${esc(a.title)}</h2><span class="spacer"></span><a class="btn btn-sm" href="#/hw/${n}">${I("pencil", 16)}${t("homework")} ${n}</a></div>
+      <div class="panel-head toolbar"><h2>${esc(a.title)}</h2><span class="spacer"></span><a class="btn btn-sm" href="#/hw/${n}">${I("pencil", 16)}${t("homework")} ${n - HB}</a></div>
       <ol>${a.items.map(i => `<li>${esc(i)}</li>`).join("")}</ol></section>`;
   }).join("")}`;
   const s = document.getElementById("akSearch");
@@ -1067,7 +1110,7 @@ function viewAnswers(target){
 function fileRow(path){
   const name = path.split("/").pop(), ext = name.split(".").pop().toLowerCase();
   return `<div class="file-row"><span class="file-ico ${ext}">${ext.toUpperCase()}</span>
-    <span class="file-name">${esc(name)}<small>${esc(path.replace(/^content\//, "Speakup-1/"))}</small></span>
+    <span class="file-name">${esc(name)}<small>${esc(path.replace(/^content-v2\//, "English from Zero v2/").replace(/^content\//, "Speakup-1/"))}</small></span>
     ${ext === "pdf" ? `<a class="btn btn-sm" href="${href(path)}" target="_blank" rel="noopener">${t("open")}</a>` : ""}
     <a class="btn btn-sm" href="${href(path)}" download>${I("download", 16)}</a></div>`;
 }
@@ -1081,7 +1124,7 @@ function viewMaterials(){
   <section class="panel"><div class="panel-head"><h2>2 · ${t("hwFiles")}</h2></div>
     <div class="file-list">${D.homeworks.map(h => fileRow(h.docx) + fileRow(h.pdf)).join("")}</div></section>
   <section class="panel"><div class="panel-head"><h2>3 · ${t("akFiles")}</h2></div>
-    <div class="file-list">${fileRow(ak.docx)}${fileRow(ak.pdf)}</div></section>`;
+    <div class="file-list">${fileRow(ak.docx)}${fileRow(ak.pdf)}${Object.values(ak.lessons).filter(a => a.docx).map(a => fileRow(a.docx) + fileRow(a.pdf)).join("")}</div></section>`;
 }
 
 function notFound(){ $app.innerHTML = `<section class="panel"><h2>404</h2><p><a href="#/">${t("home")}</a></p></section>`; }
@@ -1145,7 +1188,7 @@ function openPresenter(k, startIdx, starting){
         <button class="pr-btn" id="prClose" title="${t("close")} (Esc)">${I("x", 18)}</button></div>
     </div>
     <div class="pr-stage" id="prStage"><span class="pr-loading" id="prLoading">${t("loading")}</span><canvas id="prCanvas"></canvas><div class="pr-text textLayer" id="prTextLayer"></div><canvas class="pr-ink" id="prInk"></canvas><div class="pr-layer" id="prLayer"></div><div class="pr-laser" id="prLaser" hidden></div><div class="pr-progress"><span id="prBar"></span></div></div>
-    <aside class="pr-side" id="prSide" hidden>${u.slides.map((s, i) => isStaff() || !/JAVOBLAR/i.test(s.label) ? `<button data-i="${i}"><small>${i + 1} · ${esc(s.label)}</small>${esc(s.title || s.label)}</button>` : "").join("")}</aside>
+    <aside class="pr-side" id="prSide" hidden>${u.slides.map((s, i) => isStaff() || !isAnsSlide(s) ? `<button data-i="${i}"><small>${i + 1} · ${esc(s.label)}</small>${esc(s.title || s.label)}</button>` : "").join("")}</aside>
     <div class="pr-bottom">
       <div class="pr-group">
         <button class="pr-btn" id="prPrev">${I("left", 18)}<span class="lbl">${t("prev")}</span></button>
@@ -1168,9 +1211,10 @@ function openPresenter(k, startIdx, starting){
   const el = id => document.getElementById(id);
   const canvas = el("prCanvas"), stage = el("prStage"), layer = el("prLayer");
   let textMode = false;
-  const board = () => (progress.boards[k] = progress.boards[k] || { s:{} });
+  const bkey = bk(k);
+  const board = () => (progress.boards[bkey] = progress.boards[bkey] || { s:{} });
   const slideBoard = (create) => { const b = board(); if (!b.s[cur] && create) b.s[cur] = { b:{}, t:[] }; return b.s[cur]; };
-  const touch = () => { board().at = Date.now(); syncBoard(k); };
+  const touch = () => { board().at = Date.now(); syncBoard(bkey); };
   function buildLayer(page, scale){
     if (!staff){ layer.innerHTML = ""; return; }
     const cw = parseFloat(canvas.style.width), ch = parseFloat(canvas.style.height);
@@ -1363,7 +1407,7 @@ function openPresenter(k, startIdx, starting){
     const d = addNote(n, s2.t.length - 1); d.focus();
     textMode = false; el("prText").classList.remove("on"); layer.classList.remove("texting");
   });
-  const isAnswer = i => /JAVOBLAR/i.test(u.slides[i].label);
+  const isAnswer = i => isAnsSlide(u.slides[i]);
   const visible = i => !((settings.skipAnswers || !staff) && isAnswer(i));
   let cur = -1, task = null, ended = false;
   const t0 = Date.now();
@@ -1397,13 +1441,14 @@ function openPresenter(k, startIdx, starting){
   function showEnd(){
     ended = true;
     if (staff) toggleTaught(k, true);
-    const hw = u.type === "lesson" ? hwByNum(u.num) : null;
+    const hw = u.type === "lesson" ? hwOfLesson(u.num) : null;
     stage.insertAdjacentHTML("beforeend", `<div class="pr-end">
       <p class="eyebrow" style="color:var(--brand-200)">${esc(unitName(u)).toUpperCase()}</p>
       <h2>${u.type === "quiz" ? t("endTitleQuiz") : t("endTitle")}</h2>
       <p>${esc(u.title)} · ${el("prTimer").textContent}${hw && staff ? " · " + t("endSub") : ""}</p>
       <div class="pr-group" style="justify-content:center">
-        ${hw ? `<button class="pr-btn primary" data-go="#/hw/${hw.num}">${I("pencil", 18)}${t("openHomework")} ${hw.num}</button>` : ""}
+        ${hw ? `<button class="pr-btn primary" data-go="#/hw/${hw.num}">${I("pencil", 18)}${t("openHomework")} ${hwNo(hw)}</button>` : ""}
+        ${Learn() && u.type === "lesson" && !staff ? `<button class="pr-btn" data-go="#/practice/${u.num}">${t("practice")}</button>` : ""}
         <button class="pr-btn" data-go="#/u/${k}">${t("backToLesson")}</button>
         ${next && hasAccess(keyOf(next)) ? `<button class="pr-btn" data-go="#/u/${keyOf(next)}">${t("nextUnit")}: ${esc(unitName(next))}</button>` : ""}
       </div></div>`);
@@ -1419,7 +1464,7 @@ function openPresenter(k, startIdx, starting){
       i = j;
     }
     if (i === cur && canvas.width) { update(); return; }
-    cur = i; progress.lastSlide[k] = cur; if (staff) syncTeach(); else saveProgress();
+    cur = i; progress.lastSlide[bkey] = cur; if (staff) syncTeach(); else saveProgress();
     history.replaceState(null, "", "#/present/" + k + "/" + cur);
     draw(); update();
   }
@@ -1498,6 +1543,7 @@ function route_(){
   closePresenter(true);
   stopHwWatch();
   renderChrome(path);
+  if (Learn() && Learn().route(parts)){ window.scrollTo(0, 0); return; }
   if (!path) viewHome();
   else if (parts[0] === "lessons") viewLessons(query || "");
   else if (parts[0] === "u") viewUnit(parts[1]);
@@ -1526,7 +1572,9 @@ window.SP1_refresh = async () => { await initUser(); route_(); };
 const vocabCache = {};
 function vocabOf(n){
   if (vocabCache[n]) return vocabCache[n];
-  const h = hwByNum(n), out = [];
+  const lc = window.SU1C && window.SU1C.lessons.find(l => l.n === n);
+  if (lc) return (vocabCache[n] = lc.vocab.slice(0, 30));
+  const h = hwOfLesson(n), out = [];
   if (h){
     const doc = new DOMParser().parseFromString(h.html, "text/html");
     doc.querySelectorAll("table").forEach(tb => {
@@ -1560,6 +1608,7 @@ window.addEventListener("tt-helper-ready", () => { try{ renderChrome(location.ha
 
 /* used by shared/sp1-settings.js */
 window.SP1App = { D, t, esc, I, toast, keyOf, keyMap, keyMatches, unitByKey, unitName, partName, lessons, quizzes, hwByNum, fmtAgo,
-  members, myClass, openFor, hasFor, openGrantModal, get openAll(){ return openAll; }, viewAnswers, isStaff, get people(){ return people; }, lang: () => settings.lang };
+  members, myClass, openFor, hasFor, openGrantModal, get openAll(){ return openAll; }, viewAnswers, isStaff, get people(){ return people; }, lang: () => settings.lang,
+  hwOfLesson, hwNo, get progress(){ return progress; }, saveProgress, settings, saveSettings, hasAccess, notFound, lockedView, V2, HB };
 if (window.SP1Cloud && window.SP1Cloud.user) boot(); else window.addEventListener("sp1:auth", boot);
 })();
