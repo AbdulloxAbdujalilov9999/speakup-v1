@@ -217,7 +217,14 @@ const Cloud = {
   // mark a homework as finished (checked) or reopen it, keeping the teacher's corrections
   async setChecked(uid, hw, on){
     const cur = (await get(ref(db, `sp1/reviews/${uid}/${hw}`))).val() || { fix:{}, marks:{}, comment:"" };
-    return this.saveReview(uid, hw, Object.assign(cur, { checked: !!on }));
+    await this.saveReview(uid, hw, Object.assign(cur, { checked: !!on }));
+    if (on) await this.markDoneFor(uid, hw);
+  },
+  // staff: write the student's own "done" mark too, so it counts everywhere at once
+  // (allowed by the sp1/progress/$uid/hwDone rule for owner/manager and the student's teacher)
+  markDoneFor(uid, hw, ts){
+    const u = {}; u[`hwDone/${hw}`] = ts || Date.now();
+    return update(ref(db, "sp1/progress/" + uid), u).catch(e => console.warn("markDoneFor (database rules not updated yet?)", e));
   },
   doneReset(id){ return remove(ref(db, `sp1/resets/${this.uid}/${id}`)); },
   watchMyAccess(cb){ return onValue(ref(db, "sp1/access/" + this.uid), s => cb(s.val() || {}), () => cb({})); },

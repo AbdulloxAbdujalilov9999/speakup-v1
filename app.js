@@ -978,7 +978,7 @@ function viewHomework(n, query){
           paint(); save();
           toast(`${ok} ✓ · ${bad} ${t("toReview")}`);
         };
-        document.getElementById("rvCheck").onclick = () => { const was = !!(rv && rv.checked), r2 = R(); r2.checked = !was; save(); paintHead(); };
+        document.getElementById("rvCheck").onclick = () => { const was = !!(rv && rv.checked), r2 = R(); r2.checked = !was; save(); paintHead(); if (!was) Cloud().markDoneFor(sel, n); };
       }
       const c = document.getElementById("rvComment");
       if (document.activeElement !== c) c.value = r.comment || "";
