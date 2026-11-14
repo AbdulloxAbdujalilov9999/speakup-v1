@@ -311,6 +311,9 @@ function drawProgress(el){
       <p class="panel-sub">${L("Shu oʻquvchi uchun bir nechta darsni birdaniga oching yoki yoping.", "Open or close several lessons at once for this student.")}</p></div>
       <div class="reset-row"><select class="select" id="pgFrom">${unitOpts(state.rgFrom || "lesson-1")}</select><select class="select" id="pgTo">${unitOpts(state.rgTo || "lesson-5")}</select>
         <button class="btn btn-accent" data-pg-open>${L("Ochish", "Open")}</button><button class="btn btn-ghost" data-pg-close>${L("Yopish", "Close")}</button></div></section>
+    <section class="panel"><div class="panel-head"><h2>${L("Uy vazifasini «bajarildi» deb belgilash", "Mark a homework as passed")}</h2>
+      <p class="panel-sub">${L("Oʻquvchi boshlamagan boʻlsa ham, tanlangan uy vazifasi tekshirildi va bajarildi deb belgilanadi.", "Marks the homework as checked and passed, even if the student hasn't started it.")}</p></div>
+      <div class="reset-row"><select class="select" id="psHw">${hwOpts(state.psHw || A().D.homeworks[0].num)}</select><button class="btn btn-accent" data-pass-hw>${A().I("check", 14)}${L("Bajarildi", "Passed")}</button></div></section>
     <section class="panel"><div class="panel-head"><h2>${L("Uy vazifasini qaytadan boshlash", "Reset a homework")}</h2>
       <p class="panel-sub">${L("Tanlangan uy vazifasidagi barcha javoblarini va «bajarildi» belgisini oʻchiradi, shunda qaytadan bajaradi.", "Clears every answer and the done mark on one homework so they can redo it.")}</p></div>
       <div class="reset-row"><select class="select" id="rsHw">${hwOpts(state.rsHw || (hwRows[0] || 1))}</select><button class="btn btn-accent" data-reset-hw>${L("Qaytadan boshlash", "Reset this homework")}</button></div>
@@ -450,6 +453,8 @@ function wire(body){
   const doReset = n => { const s = A().members().find(x => x.uid === assignView.uid); if (confirm(L(`${(s && s.name) || ""}: ${n}-uy vazifasi javoblari oʻchirilsinmi?`, `Clear ${(s && s.name) || "this student"}'s answers on homework ${n}?`))) act(() => C().queueReset(assignView.uid, n), L("Soʻrov yuborildi", "Reset queued")); };
   q("[data-reset-hw]", b => b.onclick = () => { state.rsHw = body.querySelector("#rsHw").value; doReset(state.rsHw); });
   q("[data-reset-row]", b => b.onclick = () => doReset(b.dataset.resetRow));
+  q("[data-pass-hw]", b => b.onclick = () => { state.psHw = body.querySelector("#psHw").value; b.disabled = true;
+    act(() => C().setChecked(assignView.uid, Number(state.psHw), true), L("Uy vazifasi bajarildi deb belgilandi", "Marked as passed")).then(() => { b.disabled = false; }); });
   q("[data-finish]", b => b.onclick = () => { const on = b.dataset.on === "1"; b.disabled = true;
     act(() => C().setChecked(assignView.uid, b.dataset.finish, on), on ? L("Uy vazifasi bajarildi deb belgilandi", "Marked as passed") : L("Qayta ochildi", "Reopened")); });
   q("[data-toggle]", b => b.onclick = e => { e.preventDefault();
