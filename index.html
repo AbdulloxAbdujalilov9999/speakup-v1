@@ -23,6 +23,7 @@
 <link rel="stylesheet" href="shared/sp1-v2.css">
 <link rel="stylesheet" href="shared/sp1-admin.css">
 <link rel="stylesheet" href="shared/sp1-learn.css?v=2">
+<link rel="stylesheet" href="shared/sp1-centers.css">
 <script>
   try{
     var t = (JSON.parse(localStorage.getItem("sp1_settings")||"{}")||{}).theme;
@@ -60,8 +61,9 @@
   var v = "v2";
   try{ var st = JSON.parse(localStorage.getItem("sp1_settings") || "{}") || {}; if (st.ver === "v1" && Date.now() < Date.UTC(2026, 11, 14)) v = "v1"; }catch(e){}
   window.SP1_VER = v;
-  document.write(v === "v1" ? '<script src="data/content.js"><\/script>' : '<script src="data/content-v2.js?v=2"><\/script><script src="data/course-v2.js?v=2"><\/script>');
 })();
+/* The course (data/, slides, homework files) and app.js load after sign-in: shared/sp1-cloud.js asks server.js
+   for a session first, so the lesson content is never served to someone who isn't signed in with a paid licence. */
 </script>
 <!-- The AI teacher (voice, helper, spoken conversation): copies of SpeakUp's shared/neural-voice.js, teach-script.js,
      teach-ui.js and tutor-ui.js, talking to the same servers as SpeakUp (www.trucktalk.courses). -->
@@ -71,9 +73,6 @@
 <script src="shared/teach-script.js"></script>
 <script src="shared/teach-ui.js"></script>
 <script src="shared/tutor-ui.js"></script>
-<script src="shared/sp1-learn.js?v=2"></script>
-<script src="app.js?v=2"></script>
-<script src="shared/sp1-settings.js"></script>
-<script type="module" src="shared/sp1-cloud.js"></script>
+<script type="module" src="shared/sp1-cloud.js?v=3"></script>
 </body>
 </html>

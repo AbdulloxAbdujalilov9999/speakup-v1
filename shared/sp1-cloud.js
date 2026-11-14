@@ -14,17 +14,20 @@
  * Access control is in SpeakUp's database.rules.json (the "sp1" node). */
 import { initializeApp, getApps, deleteApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
 import {
-  getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut,
+  getAuth, connectAuthEmulator, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut,
   createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, updateProfile,
   EmailAuthProvider, reauthenticateWithCredential, verifyBeforeUpdateEmail,
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
-import { getDatabase, ref, get, set, update, onValue, push, remove, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js";
-import { firebaseConfig, OWNER_EMAIL } from "./firebase-config.js";
+import { getDatabase, connectDatabaseEmulator, ref, get, set, update, onValue, push, remove, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js";
+import { firebaseConfig, OWNER_EMAIL, SALES_URL, AI_FOR_CENTERS } from "./firebase-config.js";
 
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
-const STAFF = ["owner", "manager", "teacher"];
+/* local testing against the Firebase emulators: open the site on localhost with ?emu=1 once */
+const EMU = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && (() => { try{ if (/[?&]emu=1/.test(location.search)) localStorage.setItem("sp1_emu", "1"); if (/[?&]emu=0/.test(location.search)) localStorage.removeItem("sp1_emu"); return localStorage.getItem("sp1_emu") === "1"; }catch(e){ return false; } })();
+if (EMU){ connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true }); connectDatabaseEmulator(db, "127.0.0.1", 9000); }
+const STAFF = ["owner", "manager", "admin", "teacher"];
 
 const uz = () => ((JSON.parse(localStorage.getItem("sp1_settings") || "{}") || {}).lang || "uz") !== "en";
 const L = (a, b) => (uz() ? a : b);
@@ -32,6 +35,18 @@ const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&":"&am
 const GOOGLE_ICON = `<svg viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.7-6.1 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.5 6.1 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.5 16 18.9 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.5 6.1 29.6 4 24 4c-7.6 0-14.1 4.3-17.4 10.7z"/><path fill="#4CAF50" d="M24 44c5.5 0 10.5-2.1 14.2-5.6l-6.6-5.6C29.6 34.8 26.9 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.6 5.1C9.8 39.6 16.3 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.2 4.3-4.1 5.7l6.6 5.6C39.9 37.4 44 31.4 44 24c0-1.3-.1-2.7-.4-3.5z"/></svg>`;
 
 let mode = "signin", errorMsg = "", busy = false, pendingName = "";
+/* A center's invite code: from the link they were sent (?invite=CODE or #/join/CODE) or typed on the sign-up form. */
+const cleanCode = c => String(c || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+let pendingInvite = (() => {
+  try{
+    const q = new URLSearchParams(location.search).get("invite"), h = (location.hash.match(/^#\/join\/([A-Za-z0-9-]+)/) || [])[1];
+    const c = cleanCode(q || h);
+    if (c) sessionStorage.setItem("sp1_invite", c);
+    if (h) history.replaceState(null, "", location.pathname + location.search + "#/");
+    return c || sessionStorage.getItem("sp1_invite") || "";
+  }catch(e){ return ""; }
+})();
+if (pendingInvite) mode = "signup";
 const $root = () => document.getElementById("authRoot");
 const showApp = on => { $root().hidden = on; document.getElementById("appShell").hidden = !on; };
 
@@ -45,6 +60,7 @@ function errText(e){
     "auth/weak-password": L("Parol kamida 6 belgidan iborat boʻlsin.", "Password must be at least 6 characters."),
     "auth/invalid-email": L("Email notoʻgʻri.", "That email address is not valid."),
     "auth/popup-closed-by-user": L("Kirish bekor qilindi.", "Sign-in was cancelled."),
+    "sp1/bad-invite": L("Taklif kodi topilmadi yoki oʻchirilgan. Markazingizdan yangi kod soʻrang.", "That invite code doesn't exist or was switched off. Ask your center for a new one."),
     "auth/unauthorized-domain": L("Google orqali kirish bu saytda hali yoqilmagan. Email va parol bilan kiring.", "Google sign-in isn't enabled for this site yet. Use email and password."),
   })[c] || (e && e.message) || String(e);
 }
@@ -55,12 +71,13 @@ function renderSignIn(){
   <div class="auth-screen"><div class="auth-card">
     <span class="auth-brand">SPEAKUP-1</span>
     <h1 class="auth-title">${reset ? L("Parolni tiklash", "Reset password") : signup ? L("Hisob yaratish", "Create your account") : L("Kirish", "Sign in")}</h1>
-    <p class="auth-sub">${L("Har bir oʻquvchining oʻz hisobi bor — oʻqituvchi uy vazifalaringizni shu yerda koʻradi. SpeakUp hisobingiz bilan ham kirishingiz mumkin.", "Every student has their own account so the teacher can see your homework. Your SpeakUp account works here too.")}</p>
+    <p class="auth-sub">${pendingInvite ? L("Siz markaz taklifi bilan kelyapsiz. Hisob yarating — kod avtomatik qoʻllanadi.", "You were invited by a learning center. Create your account and the code is applied automatically.") : L("Har bir oʻquvchining oʻz hisobi bor — oʻqituvchi uy vazifalaringizni shu yerda koʻradi.", "Every student has their own account so the teacher can see your homework.")}</p>
     ${errorMsg ? `<div class="auth-error">${esc(errorMsg)}</div>` : ""}
     ${reset ? "" : `<div class="auth-providers"><button class="auth-btn-provider" id="gBtn" ${busy ? "disabled" : ""}>${GOOGLE_ICON}${L("Google orqali kirish", "Continue with Google")}</button></div>
     <div class="auth-divider">${L("yoki", "or")}</div>`}
     <form class="auth-form" id="authForm">
       ${signup ? `<label class="auth-label" for="aName">${L("Ism familiya", "Full name")}</label><input class="auth-input" id="aName" required autocomplete="name">` : ""}
+      ${signup ? `<label class="auth-label" for="aInvite">${L("Taklif kodi (markaz yoki oʻqituvchidan)", "Invite code (from your center or teacher)")}</label><input class="auth-input" id="aInvite" autocomplete="off" autocapitalize="characters" value="${esc(pendingInvite)}" placeholder="${L("masalan", "e.g.")} K7PQ2M9X">` : ""}
       <label class="auth-label" for="aEmail">Email</label><input class="auth-input" id="aEmail" type="email" required autocomplete="email">
       ${reset ? "" : `<label class="auth-label" for="aPass">${L("Parol", "Password")}</label><input class="auth-input" id="aPass" type="password" required minlength="6" autocomplete="${signup ? "new-password" : "current-password"}">`}
       <button class="btn btn-accent" style="margin-top:14px" ${busy ? "disabled" : ""}>${reset ? L("Havola yuborish", "Send reset link") : signup ? L("Roʻyxatdan oʻtish", "Sign up") : L("Kirish", "Sign in")}</button>
@@ -79,6 +96,9 @@ function renderSignIn(){
     const pass = document.getElementById("aPass").value;
     if (signup){
       pendingName = document.getElementById("aName").value.trim();
+      const ic = document.getElementById("aInvite");
+      pendingInvite = cleanCode(ic && ic.value);
+      try{ if (pendingInvite) sessionStorage.setItem("sp1_invite", pendingInvite); else sessionStorage.removeItem("sp1_invite"); }catch(e){}
       return run(async () => { const c = await createUserWithEmailAndPassword(auth, email, pass); await updateProfile(c.user, { displayName: pendingName }).catch(() => {}); });
     }
     run(() => signInWithEmailAndPassword(auth, email, pass));
@@ -106,7 +126,13 @@ function renderLoading(){
 /* create the shared /users profile the same way SpeakUp does (rules require this exact shape) */
 async function ensureProfile(user){
   const snap = await get(ref(db, "users/" + user.uid));
-  if (snap.exists()) return snap.val();
+  if (snap.exists()){
+    const p = snap.val();
+    // signed up earlier without a code: join the center now
+    if (pendingInvite && p.status === "pending" && !p.centerId && p.role === "student") return joinWithInvite(user, pendingInvite, p);
+    return p;
+  }
+  if (pendingInvite) return joinWithInvite(user, pendingInvite, null);
   const email = user.email || "", isOwner = email === OWNER_EMAIL;
   const profile = {
     name: pendingName || user.displayName || email.split("@")[0],
@@ -117,6 +143,74 @@ async function ensureProfile(user){
   };
   await set(ref(db, "users/" + user.uid), profile);
   return (await get(ref(db, "users/" + user.uid))).val();
+}
+
+/* Create (or upgrade a pending) profile from a center's invite code, in one write:
+ * users/{uid} + centerUsers/{cid}/{uid} + teacherStudents/{teacher}/{uid}. The rules check it against invites/{code}. */
+async function joinWithInvite(user, code, existing){
+  const inv = (await get(ref(db, "invites/" + code))).val();
+  if (!inv || inv.off){ const e = new Error("bad invite"); e.code = "sp1/bad-invite"; try{ sessionStorage.removeItem("sp1_invite"); }catch(x){} pendingInvite = ""; throw e; }
+  const email = user.email || "";
+  const profile = Object.assign({}, existing || {}, {
+    name: (existing && existing.name) || pendingName || user.displayName || email.split("@")[0],
+    email, photoURL: (existing && existing.photoURL) || user.photoURL || null,
+    provider: (existing && existing.provider) || (user.providerData[0] && user.providerData[0].providerId) || "password",
+    status: "approved", role: inv.role, centerId: inv.cid, invite: code,
+    updatedAt: serverTimestamp(), lastActive: serverTimestamp(),
+  });
+  if (!existing) profile.createdAt = serverTimestamp();
+  if (inv.teacherId) profile.teacherId = inv.teacherId; else delete profile.teacherId;
+  const u = { [`users/${user.uid}`]: profile, [`centerUsers/${inv.cid}/${user.uid}`]: true };
+  if (inv.teacherId) u[`teacherStudents/${inv.teacherId}/${user.uid}`] = true;
+  await update(ref(db), u);
+  try{ sessionStorage.removeItem("sp1_invite"); }catch(e){}
+  pendingInvite = "";
+  return (await get(ref(db, "users/" + user.uid))).val();
+}
+
+/* ---- licence: a center member may use the course while centers/{cid}/paidUntil is in the future ---- */
+const DAY = 864e5;
+function licenceOf(profile, center){
+  if (!profile || !profile.centerId) return { ok: true, center: null };          // the owner's own groups
+  if (!center) return { ok: false, center: null, missing: true };
+  const until = Number(center.paidUntil) || 0;
+  return { ok: until > Date.now(), center, until, daysLeft: Math.ceil((until - Date.now()) / DAY) };
+}
+function renderExpired(lic){
+  showApp(false);
+  const c = lic.center || {}, admin = Cloud.profile && Cloud.profile.role === "admin";
+  $root().innerHTML = `<div class="auth-screen"><div class="auth-card"><span class="auth-brand">SPEAKUP-1</span>
+    <h1 class="auth-title">${lic.missing ? L("Markaz topilmadi", "Center not found") : L("Obuna muddati tugagan", "Subscription ended")}</h1>
+    <p class="auth-sub">${esc(c.name || "")}${lic.until ? " · " + L("tugagan sana", "ended on") + " " + new Date(lic.until).toLocaleDateString() : ""}</p>
+    <p class="auth-sub">${admin ? L("Toʻlovdan soʻng darslar, uy vazifalari va natijalar darhol qayta ochiladi — hech narsa oʻchmaydi.", "Lessons, homework and results reopen as soon as payment arrives. Nothing is deleted.")
+      : L("Markazingiz administratoriga murojaat qiling. Natijalaringiz saqlanib qoladi.", "Please contact your center's administrator. Your results are kept.")}</p>
+    ${admin && SALES_URL ? `<a class="btn btn-accent" href="${esc(SALES_URL)}" target="_blank" rel="noopener" style="margin-top:12px">${L("Toʻlov va tariflar", "Plans and payment")}</a>` : ""}
+    <button class="btn btn-ghost btn-sm" id="soBtn" style="margin-top:10px">${L("Chiqish", "Sign out")}</button></div></div>`;
+  document.getElementById("soBtn").onclick = () => signOut(auth);
+}
+
+/* ---- the course itself (lesson data, slides, homework files) comes from server.js only after it has seen a
+ * valid sign-in and licence; it answers with a short-lived cookie. A plain static server (local preview) has no
+ * /api/session, and then everything is served as before. ---- */
+let courseLoaded = false, sessionTimer = null;
+async function openSession(user){
+  let r;
+  try{ r = await fetch("api/session", { method: "POST", headers: { "content-type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ idToken: await user.getIdToken() }) }); }
+  catch(e){ return { ok: true, local: true }; }
+  // a plain static host (no server.js) answers 404/405/501 or an HTML page: no protection there, load as before
+  if (r.status === 404 || r.status === 405 || r.status === 501 || !/json/.test(r.headers.get("content-type") || "")) return { ok: true, local: true };
+  let j = {}; try{ j = await r.json(); }catch(e){}
+  return Object.assign({ ok: r.ok, status: r.status }, j);
+}
+function loadScript(src){
+  return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error("load " + src)); document.body.appendChild(s); });
+}
+async function loadCourse(){
+  if (courseLoaded) return;
+  const v1 = window.SP1_VER === "v1";
+  const files = v1 ? ["data/content.js"] : ["data/content-v2.js?v=2", "data/course-v2.js?v=2"];
+  for (const f of files.concat(["shared/sp1-learn.js?v=2", "shared/sp1-centers.js?v=1", "shared/sp1-settings.js?v=2", "app.js?v=3"])) await loadScript(f);
+  courseLoaded = true;
 }
 
 const toArr = v => {
@@ -135,9 +229,18 @@ function normProgress(p){
 }
 
 const isMgr = p => !!p && p.status === "approved" && (p.role === "owner" || p.role === "manager");
-let current = null, unsubMe = null;
+let current = null, unsubMe = null, unsubCenter = null;
+const genCode = (n = 8) => { const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789", b = crypto.getRandomValues(new Uint8Array(n)); return Array.from(b, x => A[x % A.length]).join(""); };
 const Cloud = {
-  ready:false, user:null, profile:null,
+  ready:false, user:null, profile:null, center:null,
+  get isAdmin(){ const p = this.profile; return !!p && p.status === "approved" && p.role === "admin"; },   // a center's admin
+  get centerId(){ return (this.profile && this.profile.centerId) || null; },
+  get licence(){ return licenceOf(this.profile, this.center); },
+  // the AI teacher costs money per call: off for center accounts unless AI_FOR_CENTERS
+  get aiOff(){ return !!this.centerId && !AI_FOR_CENTERS; },
+  // lesson openings, leaderboard and live game: sp1/copen/{center} for a center, sp1/open for the owner's own groups
+  get openPath(){ return this.centerId ? "sp1/copen/" + this.centerId : "sp1/open"; },
+  inviteLink(code){ return location.origin + location.pathname + "?invite=" + encodeURIComponent(code); },
   get isStaff(){ const p = this.profile; return !!p && p.status === "approved" && STAFF.includes(p.role); },
   get isManager(){ return isMgr(this.profile); },            // owner or manager
   get isOwner(){ const p = this.profile; return !!p && p.status === "approved" && p.role === "owner"; },
@@ -165,17 +268,17 @@ const Cloud = {
     return update(ref(db, "sp1/progress/" + this.uid), u).catch(e => console.warn("practice sync", e));
   },
   // staff: the class leaderboard (sp1/open/_lb/{uid}) and the live game (sp1/open/_game); every signed-in user reads sp1/open
-  setOpenNode(path, val){ return set(ref(db, "sp1/open/" + path), val == null ? null : val); },
+  setOpenNode(path, val){ return set(ref(db, `${this.openPath}/${path}`), val == null ? null : val); },
   async loadBoards(){ return (await get(ref(db, "sp1/boards/" + this.uid))).val() || {}; },
   saveBoard(key, board){ if (this.uid) return set(ref(db, `sp1/boards/${this.uid}/${key}`), board || null).catch(e => console.warn("board", e)); },
   watchStudent(uid, cb){ return onValue(ref(db, "sp1/progress/" + uid), s => cb(normProgress(s.val())), () => cb(normProgress(null))); },
 
   /* ---- lesson access ---- */
   // sp1/open/{unitKey}: opened for every student, including ones who sign up later
-  watchOpenAll(cb){ return onValue(ref(db, "sp1/open"), s => cb(s.val() || {}), () => cb({})); },
+  watchOpenAll(cb){ return onValue(ref(db, this.openPath), s => cb(s.val() || {}), () => cb({})); },
   setOpenAll(keys, on){
     const u = {};
-    [].concat(keys).forEach(k => { u["sp1/open/" + k] = on ? { at: Date.now(), by: this.uid } : null; });
+    [].concat(keys).forEach(k => { u[`${this.openPath}/${k}`] = on ? { at: Date.now(), by: this.uid } : null; });
     return update(ref(db), u);
   },
   setAccessMany(changes){   // [[uid, key, on], ...] in one write
@@ -248,7 +351,9 @@ const Cloud = {
       unsubs.push(onValue(ref(db, "sp1/progress"), s => { const v = s.val() || {}; st.progress = {}; Object.keys(v).forEach(k => { st.progress[k] = normProgress(v[k]); }); emit(); }, e => console.warn("progress", e)));
       unsubs.push(onValue(ref(db, "sp1/access"), s => { st.access = s.val() || {}; emit(); }, e => console.warn("access", e)));
     } else {
-      unsubs.push(onValue(ref(db, "teacherStudents/" + this.uid), s => {
+      // a center admin: everyone in centerUsers/{cid}; a teacher: their teacherStudents
+      const indexPath = this.isAdmin && this.centerId ? "centerUsers/" + this.centerId : "teacherStudents/" + this.uid;
+      unsubs.push(onValue(ref(db, indexPath), s => {
         const ids = Object.keys(s.val() || {}), keep = new Set(ids);
         for (const [id, offs] of per){ if (!keep.has(id)){ offs.forEach(f => f()); per.delete(id); delete st.users[id]; delete st.progress[id]; delete st.access[id]; } }
         ids.forEach(id => {
@@ -261,7 +366,7 @@ const Cloud = {
         });
         if (me.profile) st.users[me.uid] = me.profile;
         emit();
-      }, e => console.warn("teacherStudents", e)));
+      }, e => console.warn(indexPath, e)));
     }
     return () => { unsubs.forEach(f => f()); per.forEach(offs => offs.forEach(f => f())); clearTimeout(t); };
   },
@@ -300,6 +405,7 @@ const Cloud = {
       [`sp1/reviews/${uid}`]: null, [`sp1/assignments/${uid}`]: null, [`sp1/resets/${uid}`]: null,
     };
     if (u.role === "student" && u.teacherId) x[`teacherStudents/${u.teacherId}/${uid}`] = null;
+    if (u.centerId) x[`centerUsers/${u.centerId}/${uid}`] = null;
     if (u.role === "teacher"){
       x[`teacherStudents/${uid}`] = null; x[`events/${uid}`] = null;
       Object.keys(allUsers || {}).forEach(id => { const s = allUsers[id]; if (s && s.role === "student" && s.teacherId === uid) x[`users/${id}/teacherId`] = null; });
@@ -314,12 +420,13 @@ const Cloud = {
   },
   get providerId(){ const u = auth.currentUser; return (u && u.providerData[0] && u.providerData[0].providerId) || ""; },
   // The sign-in account is made on a throwaway app instance so the owner stays signed in.
-  async createManagedUser({ name, email, password, role, teacherId }){
+  async createManagedUser({ name, email, password, role, teacherId, centerId }){
     if (!this.isOwner) throw new Error("Only the owner can add users.");
     const secondary = initializeApp(firebaseConfig, "sp1-add-user-" + Date.now());
     let uid;
     try{
       const a2 = getAuth(secondary);
+      if (EMU) connectAuthEmulator(a2, "http://127.0.0.1:9099", { disableWarnings: true });
       const cred = await createUserWithEmailAndPassword(a2, email, password);
       uid = cred.user.uid;
       await signOut(a2);
@@ -328,11 +435,57 @@ const Cloud = {
       createdAt: serverTimestamp(), updatedAt: serverTimestamp(), lastActive: serverTimestamp() };
     const u = {};
     if (role === "student" && teacherId){ profile.teacherId = teacherId; u[`teacherStudents/${teacherId}/${uid}`] = true; }
+    if (centerId){ profile.centerId = centerId; u[`centerUsers/${centerId}/${uid}`] = true; }
     u[`users/${uid}`] = profile;
     // (no sp1/progress write here: the rules only let a student write their own, so it would fail the whole save;
     //  their first sign-in creates it)
     await update(ref(db), u);
     return uid;
+  },
+
+  /* ---- centers, plans and invite codes ----
+   * centers/{cid}: {name, plan, paidUntil, contact, phone, note, createdAt, by} (owner/manager write)
+   * invites/{code}: {cid, role, teacherId?, by, at, off?}; centerInvites/{cid}/{code}: {role, teacherId?, at} */
+  watchCenters(cb){ return onValue(ref(db, "centers"), s => cb(s.val() || {}), () => cb({})); },
+  watchCenter(cid, cb){ return onValue(ref(db, "centers/" + cid), s => cb(s.val()), () => cb(null)); },
+  async createCenter({ name, plan, days, contact, phone }){
+    const cid = push(ref(db, "centers")).key;
+    await set(ref(db, "centers/" + cid), { name, plan: plan || "s50", paidUntil: Date.now() + (Number(days) || 30) * DAY,
+      contact: contact || "", phone: phone || "", pilot: true, createdAt: Date.now(), by: this.uid });
+    return cid;
+  },
+  updateCenter(cid, patch){ return update(ref(db, "centers/" + cid), Object.assign({}, patch, { updatedAt: Date.now() })); },
+  // payment received: extend paidUntil by `days` from today or from the current end, whichever is later; keep a log
+  async addPaidDays(cid, days, amount, note){
+    const c = (await get(ref(db, "centers/" + cid))).val() || {};
+    const from = Math.max(Date.now(), Number(c.paidUntil) || 0), until = from + days * DAY;
+    const u = { [`centers/${cid}/paidUntil`]: until, [`centers/${cid}/pilot`]: false, [`centers/${cid}/updatedAt`]: Date.now() };
+    u[`centers/${cid}/payments/${push(ref(db, `centers/${cid}/payments`)).key}`] = { at: Date.now(), days, amount: Number(amount) || 0, note: note || "", by: this.uid, until };
+    await update(ref(db), u);
+    return until;
+  },
+  watchCenterInvites(cid, cb){ return onValue(ref(db, "centerInvites/" + cid), s => cb(s.val() || {}), () => cb({})); },
+  async createInvite(cid, role, teacherId){
+    const code = genCode(8), inv = { cid, role, by: this.uid, at: Date.now() };
+    if (teacherId) inv.teacherId = teacherId;
+    const u = { [`invites/${code}`]: inv };
+    if (role === "teacher" && this.profile && this.profile.role === "teacher") throw new Error("teachers can only invite students");
+    if (this.isManager || this.isAdmin) u[`centerInvites/${cid}/${code}`] = { role, teacherId: teacherId || null, at: inv.at };
+    if (!this.isManager && !this.isAdmin) u[`users/${this.uid}/inviteCode`] = code;   // a teacher's own pupil code
+    await update(ref(db), u);
+    return code;
+  },
+  async deleteInvite(cid, code){
+    const u = { [`invites/${code}`]: null };
+    if (this.isManager || this.isAdmin) u[`centerInvites/${cid}/${code}`] = null;
+    else u[`users/${this.uid}/inviteCode`] = null;
+    await update(ref(db), u);
+  },
+  // a teacher's pupil code: reuse the one on their profile, or make one
+  async myStudentInvite(){
+    const p = this.profile || {};
+    if (p.inviteCode){ const inv = (await get(ref(db, "invites/" + p.inviteCode))).val(); if (inv && !inv.off) return p.inviteCode; }
+    return this.createInvite(this.centerId, "student", this.uid);
   },
 
   /* ---- calendar (SpeakUp's events/{teacherId}) ---- */
@@ -349,6 +502,7 @@ window.SP1Cloud = Cloud;
 renderLoading();
 onAuthStateChanged(auth, async user => {
   if (unsubMe){ unsubMe(); unsubMe = null; }
+  if (unsubCenter){ unsubCenter(); unsubCenter = null; }
   if (!user){
     Cloud.user = Cloud.profile = null; window.SU_user = null; showApp(false); renderSignIn();
     if (current) location.reload();
@@ -359,6 +513,29 @@ onAuthStateChanged(auth, async user => {
     const profile = await ensureProfile(user);
     if (profile.status === "restricted") return renderBlocked();
     Cloud.user = user; Cloud.profile = profile;
+    // a center member: watch the center (its plan and paidUntil); lock or unlock the app as it changes
+    if (unsubCenter){ unsubCenter(); unsubCenter = null; }
+    Cloud.center = null;
+    if (profile.centerId){
+      await new Promise(res => {
+        let first = true;
+        unsubCenter = onValue(ref(db, "centers/" + profile.centerId), s => {
+          const was = Cloud.licence.ok;
+          Cloud.center = s.val();
+          if (first){ first = false; return res(); }
+          if (was !== Cloud.licence.ok) location.reload();
+        }, () => { if (first){ first = false; res(); } });
+      });
+      if (!Cloud.licence.ok && !isMgr(profile)) return renderExpired(Cloud.licence);
+    }
+    const sess = await openSession(user);
+    if (!sess.ok){
+      if (sess.status === 402) return renderExpired(Object.assign({ ok: false }, Cloud.licence));
+      throw new Error(sess.error || L("Kursni yuklab boʻlmadi. Sahifani yangilang.", "Couldn't load the course. Please refresh the page."));
+    }
+    clearInterval(sessionTimer);
+    if (!sess.local) sessionTimer = setInterval(() => openSession(user).then(r => { if (r.status === 402) location.reload(); }), 3 * 3600e3);
+    if (Cloud.aiOff) document.body.classList.add("no-ai");
     const setSU = p => {   // what the AI teacher (shared/tutor-ui.js) reads
       window.SU_user = { uid: user.uid, name: p.name, email: p.email || user.email, role: p.role, teacherId: p.teacherId || null };
     };
@@ -376,7 +553,9 @@ onAuthStateChanged(auth, async user => {
       if (roleChanged && window.SP1_refresh) window.SP1_refresh();
     });
     if (current !== user.uid){
-      current = user.uid; showApp(true);
+      current = user.uid;
+      await loadCourse();
+      showApp(true);
       window.dispatchEvent(new CustomEvent("sp1:auth"));
     }
   }catch(e){

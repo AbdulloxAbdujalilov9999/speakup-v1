@@ -1,5 +1,10 @@
 /* Firebase project configuration.
  *
+ * MOVING TO SpeakUp-1's OWN PROJECT (see SETUP-CENTERS.md): replace the object
+ * below with the new project's web-app config, then deploy database.rules.json
+ * to it. The current values are the shared "bucketlist" project that SpeakUp
+ * and other apps also use.
+ *
  * Backend is Firebase Authentication + Realtime Database — chosen
  * specifically because Realtime Database works on the free Spark plan
  * with no billing account required (unlike Firestore, which now requires
@@ -26,3 +31,10 @@ export const firebaseConfig = {
  * boundary, this one is just so the client UI knows to skip the request
  * screen. */
 export const OWNER_EMAIL = "abdujalilov7707@gmail.com";
+
+/* Where a center admin whose subscription ended is sent to see plans and pay. */
+export const SALES_URL = "https://speakup-centers.onrender.com/?src=app";
+
+/* The AI teacher runs on the trucktalk.courses server and every call costs
+ * money. It stays off for learning-center accounts until it is priced in. */
+export const AI_FOR_CENTERS = false;

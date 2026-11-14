@@ -29,8 +29,13 @@ Teacher platform built from everything in `~/Desktop/Speakup-1`, styled like Spe
 - **Materiallar** — every original file (PPTX, PDF, DOCX) for open/download.
 - Progress (lessons taught, homework done, last slide) is saved in the browser. UZ/EN switch, light/dark theme.
 
+## Learning centers (licensing)
+Centers, invite codes, plans with a paid-until date, a monthly report per center, and course files served only to
+signed-in, paid users. Setup and day-to-day use: [SETUP-CENTERS.md](SETUP-CENTERS.md).
+
 ## Run
-Double-click `Start SpeakUp-1.command`, or: `python3 -m http.server 8761` here and open http://localhost:8761
+Production: `npm start` (runs `server.js`, which keeps the course files private).
+Quick local look: double-click `Start SpeakUp-1.command`, or `python3 -m http.server 8761` here and open http://localhost:8761
 
 ## Update content
 Change files in `~/Desktop/Speakup-1` (keep the same names; re-export the PDFs too), then:
