@@ -111,7 +111,7 @@ function userRow(u, pending){
   return `<div class="user-row"><div class="user-row-top">${ident}
       <div class="user-row-badges"><span class="user-badge role-${u.role || "none"}">${esc(ROLE()[u.role] || u.role || "—")}</span>
         <span class="user-badge ${statusClass(u)}">${esc(statusLabel(u))}</span>
-        ${isMember(u) && u.role === "student" ? `<span class="user-badge">SpeakUp-1</span>` : ""}
+        ${u.role === "student" ? (isMember(u) ? `<span class="user-badge">SpeakUp-1</span>` : pending ? `<span class="user-badge">SpeakUp</span>` : "") : ""}
         ${joined(u) ? `<span class="user-joined mono">${L("Qoʻshilgan", "Joined")} ${joined(u)}</span>` : ""}</div></div>
     <div class="user-row-controls">
       ${!pending && u.role === "student" ? teacherPicker(u) : ""}
@@ -123,7 +123,9 @@ function userRow(u, pending){
 }
 function drawUsers(el){
   const all = usersList().filter(u => u.id !== undefined);
-  const pending = all.filter(u => u.status === "pending" && (state.usersFilter === "all" || isMember(u)));
+  // Every pending sign-up must show here, whatever the filter below: the badge on this tab counts all of them,
+  // and a brand-new student often has no sp1/progress yet (so isMember() is false) until they are approved.
+  const pending = all.filter(u => u.status === "pending");
   const others = restrictedLast(all.filter(u => u.status !== "pending"));
   const scope = state.usersFilter === "all" ? others : others.filter(isMember);
   const f = [{ value: "sp1", label: "SpeakUp-1", count: others.filter(isMember).length }, { value: "teacher", label: L("Oʻqituvchilar", "Teachers"), count: others.filter(u => u.role === "teacher").length },
